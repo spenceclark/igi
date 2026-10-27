@@ -83,11 +83,16 @@ Issues found and resolved during the build:
   - the handover is derived in code, and knowledge goes in a delimited data block, never in `instructions`;
   - the priority slice is narrowed to one clarification, `propose_knowledge` and the October-to-November reuse, using a `source` column on look-through rows.
 
+**Spec v0.8**
+
+- The "IGI" agent is registered in Cairn Dev and its key is in `server/.env`.
+- The investigation package is a Markdown file, which Cairn previews as formatted text (spec §12.1).
+- Removed §20 (post-hackathon direction and Cairn platform candidates): a Cairn strategy document now covers it.
+- The end-to-end build uses a local Postgres; the DigitalOcean database and bucket wait until deployment.
+
 **Open**
 
-- Register the "IGI" agent in Cairn Dev (spec §12.2) and put its key in `server/.env` before the Cairn client is built.
-- Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`.
-- Choose the investigation-package file format by how it previews in Cairn (spec §12.2). Gate A tested an assertion only, and the file is now mandatory for publication.
+- Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.
 - Gate B observations for later: Spark sweeps every catalogue check across every portfolio before forming hypotheses, so the checks, not Python, do most of the discovery. The holdout therefore needs at least one issue type no catalogue check covers; the overdue-action findings show Spark can find those. Classifications for the notification trigger vary between runs (observation, outstanding action).
 - The leak scan is a throwaway script; make it part of the evaluation harness so it runs before every evaluation.
 - Cairn demo environment to confirm (default: Cairn Dev).
