@@ -1,0 +1,15 @@
+{
+  "name": "igi-server",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "smoke:monty": "node scripts/monty-smoke.ts",
+    "probe:meta": "node --env-file-if-exists=.env scripts/meta-probe.ts"
+  },
+  "dependencies": {
+    "@pydantic/monty": "1.4.0"
+  }
+}

@@ -67,3 +67,6 @@ dist-ssr
 ref/
 
 .cloudflare/cache/cloudflare-account.json
+
+# Private notes (Cairn internals) - never publish
+docs/private/

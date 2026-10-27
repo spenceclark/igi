@@ -1,34 +1,47 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.1
+## Product & Technical Specification — v0.3
 
-**Date:** 26 October 2026  
-**Status:** Draft for implementation  
+**Date:** 27 October 2026  
+**Status:** Draft. The specification and the Cairn API boundary are to be settled before implementation starts.  
 **Organisation:** Cairn River Ltd  
-**Project:** Standalone AI-first investment governance application, powered by Cairn  
-**Hackathon:** Meta Global AI Developer Hackathon 2026  
-**Proposed track:** Startup — Build for Your World
+**Project:** Standalone AI-first investment-governance application, built on Cairn  
+**Hackathon:** Meta Global AI Developer Hackathon 2026, Startup track, theme "Build for Your World"  
+**Submission deadline:** 4 November 2026, 9:00 pm US Eastern Time (02:00 GMT, 5 November 2026)
+
+---
+
+## How to read this document
+
+Every capability in this specification belongs to exactly one of these categories. Section headings carry the label where it matters.
+
+| Label | Meaning |
+|---|---|
+| **[Existing Cairn]** | Built and running in Cairn before the hackathon. Privately maintained. IGI uses it; the entry does not claim it. |
+| **[Cairn extension]** | The candidate-status read-back (§12.5). Authorised by founder decision, built in the private Cairn repository through Cairn's normal decision and development process. Not yet built. |
+| **[New IGI]** | Built during the hackathon in the public IGI repository. This is the entry. |
+| **[MVP]** | Required for the hackathon submission. |
+| **[Stretch]** | Only after the complete MVP works. |
+| **[Post-hackathon]** | Deliberately out of scope for the event. |
 
 ---
 
 ## 1. Executive Summary
 
-Investment Governance Intelligence (IGI) is an AI-powered investment-governance analyst for small and mid-sized UK discretionary investment management firms.
+Investment Governance Intelligence (IGI) is an AI investment-governance analyst for small and mid-sized UK discretionary investment managers.
 
-It helps investment teams prepare for periodic investment committee meetings by examining information from multiple sources, independently investigating discrepancies, identifying potential policy exceptions and producing evidence-backed findings.
+It helps an investment team prepare for its periodic investment committee. It examines information from several sources, investigates discrepancies on its own initiative, identifies potential policy exceptions and produces findings backed by reproducible evidence.
 
-Unlike conventional reporting automation, the AI is not given a predetermined series of calculations and expected conclusions.
+The AI is not given a predetermined series of calculations and expected conclusions. **The agent acts as an investigator.** It inspects unfamiliar data, forms hypotheses, chooses analyses, writes and runs Python, inspects the results and decides whether to dig further.
 
-Instead, **the AI agent acts as an investigator**. It can inspect unfamiliar datasets, formulate hypotheses, select analytical tools, write Python, execute calculations, inspect the results and decide whether further investigation is warranted.
+Three responsibilities are kept apart:
 
-The system combines three responsibilities:
+1. **Intelligence:** Meta Muse Spark investigates, reasons and interprets. It proposes findings. It holds no Cairn credentials and takes no privileged action.
+2. **Computation:** agent-written Python runs in a Pydantic Monty sandbox. Tested deterministic calculations validate the material numbers.
+3. **Accountability:** the IGI backend submits proposed evidence to Cairn under IGI's registered agent identity. A named person accepts or discards it in Cairn. IGI confirms what was accepted through Cairn's API before it publishes anything.
 
-1. **Intelligence:** Meta Muse Spark performs autonomous investigation, reasoning and interpretation.
-2. **Computation:** Sandboxed Python execution through Pydantic Monty, supported by deterministic TypeScript analysis and validation.
-3. **Accountability:** Cairn manages procedure records, evidence submission, human acceptance, attribution and audit history.
+IGI owns the investment data, the investigation and the committee pack. Cairn remains the authoritative system for evidence acceptance.
 
-The application manages investment-domain data and produces the final investment committee materials. Cairn remains the authoritative system for evidence review and acceptance.
-
-The project will demonstrate how a specialised application can be delivered rapidly using Cairn as a reusable foundation — a prototype of Cairn River's emerging forward-deployed engineering business model.
+The project tests Cairn as a foundation for independently developed, industry-specific AI applications. Building IGI exposed one genuine platform gap: an outside agent cannot learn what happened to evidence it submitted. That gap is being closed with a small, generic Cairn extension (§12.5) rather than a workaround in IGI.
 
 ## 2. Product Philosophy
 
@@ -36,56 +49,50 @@ The project will demonstrate how a specialised application can be delivered rapi
 
 The agent's objective is to discover and substantiate material issues in investment information.
 
-It must not be told which anomalies exist, where they are located or what conclusions it is expected to reach.
+It is not told which anomalies exist, where they are or what it should conclude. It is given:
 
-It may be provided with:
+- the overall investment-governance objective;
+- the firm's policies, in human-readable and structured form;
+- descriptions and schemas of the available data;
+- tools for reading, querying and analysing that data;
+- the scope of the review.
 
-- The overall investment-governance objective.
-- Authoritative policies and the firm's review requirements.
-- Descriptions and schemas of available datasets.
-- Tools for reading, querying and analysing information.
-- The context and scope of the review.
+It decides which investigations to perform.
 
-It must determine which investigations to perform.
+Ordinary data validation and known policy calculations are implemented deterministically. Those checks are tools the agent may choose to use. They do not dictate the investigation, and they are not a substitute for it.
 
-Ordinary data validations and known policy calculations may be implemented deterministically, but those checks must not dictate the complete investigation or replace autonomous reasoning.
-
-**A successful agent must be able to discover a material problem that the developer did not explicitly anticipate.**
+**This is not a deterministic workflow with an LLM writing the report.** A successful agent must be able to discover a material problem the developer did not explicitly anticipate.
 
 ### 2.2 Evidence before conclusions
 
-Every material finding must have sufficient supporting information for another person to examine and challenge it.
+Every material finding must carry enough supporting information for another person to examine and challenge it. A finding without adequate evidence is an unresolved observation, not a confirmed exception.
 
-A finding without adequate evidence is an unresolved observation, not a confirmed exception.
+IGI distinguishes:
 
-The application must distinguish:
-
-- Source facts.
-- Calculated results.
-- Agent interpretations.
-- Potential exceptions.
-- Accepted evidence.
-- Committee decisions.
+- source facts;
+- calculated results;
+- agent interpretations;
+- potential exceptions;
+- evidence accepted in Cairn;
+- committee decisions.
 
 ### 2.3 Human accountability
 
-Agents may start Cairn records and submit candidate evidence to the Tray or directly to compatible evidence slots on existing records.
+Spark proposes findings. The IGI backend, acting under IGI's registered Cairn agent identity, submits them as candidate evidence. Cairn attributes every submission to that agent.
 
-A named human must accept that evidence before it becomes part of the authoritative Cairn record.
+A named person in Cairn decides whether each candidate becomes evidence. Cairn records the originating agent and the accepting person.
 
-Cairn preserves both the originating agent attribution and the accepting human attribution.
-
-**Accepting evidence does not automatically mean approving the agent's conclusion or making an investment decision.**
+**Filing a candidate admits it into Cairn's record. It does not endorse every conclusion the agent expressed, approve an investment recommendation or record a committee decision.**
 
 ### 2.4 Platform boundaries
 
-The vertical application owns its domain-specific workflows, operational database, agent orchestration, calculations, importers, UI and report generation.
+IGI owns its domain data, importers, agent orchestration, calculations, investigation trace, UI and report generation.
 
-Cairn owns procedure records, evidence acceptance, record history, permissions and auditability.
+Cairn owns procedures, records, evidence acceptance, record history, permissions and audit.
 
-The project must not recreate Cairn's evidence review interface.
-
-No direct access to Cairn's database is permitted.
+- IGI reaches Cairn only through Cairn's authorised API. It never touches Cairn's database.
+- IGI does not reproduce Cairn's evidence review or acceptance interface.
+- IGI does not change Cairn. Cairn changes go through Cairn's own decision record, guardrails and development rules in the Cairn repository.
 
 ## 3. Fictional Customer and Business Problem
 
@@ -93,900 +100,985 @@ No direct access to Cairn's database is permitted.
 
 A fictional UK discretionary investment manager:
 
-- Approximately 20 employees.
-- Three model investment portfolios used in the prototype.
-- A monthly investment committee.
-- Investment information supplied by multiple providers and systems.
-- Limited internal software development capacity.
-- Human oversight of all consequential investment decisions.
+- about 20 employees;
+- three model portfolios in the prototype;
+- a monthly investment committee;
+- information supplied by several providers and systems;
+- little internal software capacity;
+- human oversight of every consequential investment decision.
 
-This is a deliberately realistic hypothetical customer, not a validated paying customer.
+This is a deliberately realistic hypothetical, not a validated paying customer.
 
 ### 3.2 Current process
 
-Each month, an investment analyst:
+Each month an investment analyst:
 
-1. Collects portfolio holdings, allocation reports and performance figures.
-2. Reconciles information from different reporting systems.
-3. Reviews investment policies, portfolio limits and manager information.
-4. Investigates discrepancies and possible breaches.
-5. Checks changes to fund charges, allocation assumptions and other relevant information.
-6. Reviews outstanding actions from previous committee meetings.
-7. Produces investment committee materials.
-8. Records decisions and follows up afterwards.
+1. collects holdings, allocation reports and performance figures;
+2. reconciles information from different reporting systems;
+3. reviews investment policies, portfolio limits and manager information;
+4. investigates discrepancies and possible breaches;
+5. checks changes to fund charges, allocation assumptions and other relevant information;
+6. reviews outstanding actions from previous committee meetings;
+7. produces the committee materials;
+8. records decisions and follows up.
 
-Information may be spread across spreadsheets, PDF documents, emails, minutes and proprietary systems.
+The information is spread across spreadsheets, PDFs, emails, minutes and proprietary systems. The goal is less manual preparation and investigation, with more reproducible and traceable results.
 
-The objective is to reduce manual preparation and investigation work while improving the reproducibility and traceability of the results.
+### 3.3 Users
 
-### 3.3 Target users
+- **Investment Analyst:** starts a review, supplies data, watches the investigation and prepares committee material.
+- **Head of Investments / CIO:** reviews proposed findings and their calculations, and accepts evidence in Cairn.
+- **Investment Committee Member:** reads the pack and takes part in decisions.
 
-**Investment Analyst:** Initiates a review, supplies information, monitors investigations and prepares committee material.
-
-**Head of Investments / CIO:** Reviews proposed findings, checks supporting calculations and approves evidence in Cairn.
-
-**Investment Committee Member:** Consumes the final pack, examines findings and participates in decisions.
-
-For the hackathon, a single operator may demonstrate all three roles. Production-grade role management across the vertical is outside the initial scope.
+For the hackathon one operator plays all three roles. IGI has a single operator login and no role management.
 
 ## 4. Scope
 
-### 4.1 Hackathon MVP
+### 4.1 Hackathon MVP [MVP]
 
-The MVP must provide an end-to-end flow:
+The end-to-end flow:
 
-**Import → Investigate → Substantiate → Submit to Cairn → Human review → Generate committee pack**
+**Import → Investigate → Propose findings → Submit to Cairn → Human acceptance in Cairn → Verify acceptance through Cairn's API → Generate committee pack**
+
+The core experience:
+
+1. Import the synthetic investment data.
+2. Watch Spark investigate it using Monty.
+3. Inspect findings and their reproducible calculations.
+4. Submit findings to Cairn and follow their acceptance status.
+5. Produce the reviewed committee pack.
 
 It includes:
 
-- Synthetic investment datasets and source documents.
-- File import and deterministic validation.
-- An autonomous Meta Muse Spark investigation agent.
-- Sandboxed Python execution using Monty.
-- Investigation history with generated code and results.
-- Evidence-backed findings.
-- Cairn record initiation and evidence submission.
-- Human acceptance through the existing Cairn UI.
-- Authoritative read-back of accepted evidence, where supported by a verified integration.
-- Committee pack generation from a fixed set of accepted evidence.
-- A blind evaluation suite with known expected outcomes.
+- synthetic investment datasets and source documents;
+- file import with deterministic validation;
+- one autonomous Muse Spark investigation agent;
+- sandboxed Python execution with Monty;
+- a persisted investigation trace of real tool calls, code, inputs and outputs;
+- evidence-backed findings;
+- operator-triggered Cairn record start and evidence submission, with a submission ledger;
+- human acceptance in the existing Cairn UI;
+- acceptance read-back through the Cairn candidate-status extension;
+- committee pack generation from a fixed snapshot of verified, accepted, active evidence;
+- an evaluation suite with development and holdout scenarios and independent answer keys.
 
-### 4.2 Explicitly excluded
+### 4.2 Excluded
 
 The MVP will not include:
 
-- Live trading or dealing instructions.
-- Portfolio rebalancing or optimisation.
-- Personalised investment recommendations.
-- Client suitability assessments.
-- Real customer financial data.
-- Live custody, trading or market-data integrations.
-- Automated acceptance of evidence.
-- Autonomous committee decisions.
-- A replacement for Cairn's review UI.
-- A general-purpose investment management platform.
-- A complex hierarchy of collaborating agents.
+- live trading, dealing instructions, rebalancing or optimisation;
+- personalised investment recommendations or suitability assessments;
+- real customer or financial data;
+- live custody, trading or market-data integrations;
+- automated acceptance of evidence, in Cairn or anywhere else;
+- autonomous committee decisions;
+- any evidence review or acceptance UI in IGI;
+- Cairn webhooks, subscriptions or a general Cairn read API;
+- a delegated-authentication framework between IGI and Cairn;
+- multi-tenant operation of IGI;
+- multiple collaborating agents or an agent framework;
+- a general-purpose investment management platform.
 
-Muse Voice, Muse Image and SAM are not required. Muse Spark is the central Meta capability.
+Muse Image, Muse Voice and SAM are not used. Muse Spark is the central Meta capability.
 
-### 4.3 Possible stretch goals
+### 4.3 Stretch goals [Stretch]
 
-Only after the complete core workflow functions:
+Only once the complete MVP works:
 
-- Investigation of a second, previously unseen dataset.
-- Additional portfolio or performance analytics.
-- Automated production of more sophisticated charts.
-- Recording post-committee decisions and carrying actions into the next cycle.
-- A second agent independently reviewing the first agent's findings.
-- Comparison of investigations produced by different model configurations.
+- re-investigation of a single finding, started by the operator from IGI with a note;
+- investigation of a second, previously unseen dataset during the demo;
+- additional portfolio and performance analytics and richer charts;
+- recording committee decisions and carrying actions into the next cycle;
+- submitting the committee pack itself to Cairn for a further acceptance step;
+- a second agent reviewing the first agent's findings;
+- comparing investigations across model configurations.
 
-## 5. Functional Workflow
+### 4.4 Post-hackathon [Post-hackathon]
 
-### 5.1 Create a review
+See §20. Includes multi-tenant isolation, role management, production deployment and anything needing real client data.
 
-The operator selects a reporting period and creates a new investment-governance review.
+## 5. What Exists, What Is New
 
-The vertical application creates an internal `Review` and an associated `AnalysisRun`.
+### 5.1 Existing Cairn functionality used by IGI [Existing Cairn]
 
-Using an authorised Cairn agent identity, it finds the existing governance subject, obtains the published review procedure and initiates a Cairn record if needed.
+Cairn's candidate intake surface, authenticated with an agent key issued by a Workspace Admin:
 
-Cairn's existing record initiation and candidate-intake contracts must be used.
+- finding subjects and the procedures a record could be started on;
+- starting a record for an existing subject, with conditional repeat handling;
+- looking up a record's incomplete steps and their evidence slots;
+- submitting file, link and assertion candidates into the workspace's Tray;
+- proposing a step and evidence slot for a candidate;
+- per-agent limits, rate limiting and audit of every submission, lookup and start.
 
-The application stores the resulting Cairn reference for correlation.
+Inside the Cairn application, for people:
 
-### 5.2 Import the information
+- filing a candidate onto a record step as evidence, or discarding it;
+- voiding evidence;
+- provenance on filed evidence: "Originally from {agent}" with the submitter's reference, and the accepting person;
+- record history, as-at views and PDF reports.
 
-The operator supplies the review's source files.
+§12.1 summarises the contract IGI relies on.
 
-Each file is:
+### 5.2 Cairn candidate-status extension [Cairn extension]
 
-- Stored as an immutable input version for the review.
-- Assigned a unique source identifier.
-- Hashed using SHA-256.
-- Parsed into typed domain data where applicable.
-- Validated for structural correctness.
-- Recorded with reporting dates, units and provenance.
+A new read-only intake operation that lets an agent learn what happened to candidates it submitted: still unfiled, discarded, or filed as evidence that is active or voided. §12.5 gives the approved contract.
 
-Missing or invalid data must be reported rather than silently repaired.
+It is generic. Any outside system that submits candidates has the same need. It is not designed around investment governance.
 
-Where data mapping is ambiguous, an operator may resolve it before investigation.
+It requires a dated founder decision and an amendment to Cairn's product guardrails, then a separately scoped implementation with tests, all in the Cairn repository under its own rules. IGI does not depend on it for publication until it passes the milestone in §17.1 (Gate A).
 
-### 5.3 Start autonomous investigation
+### 5.3 New IGI functionality [New IGI]
 
-The operator starts an analysis run.
+Everything in this repository: the synthetic data and scenario generator, importers and validation, the Spark investigation loop and its tools, the Monty adapter, deterministic checks, the investigation trace, findings, the Cairn client and submission ledger, status polling, snapshots, the committee pack, the UI, the evaluation harness, the Cairn test double and the documentation.
 
-Muse Spark receives a broad instruction to review the supplied data against the applicable governance policies, identify matters requiring attention and provide defensible supporting evidence.
+### 5.4 Hackathon disclosure
 
-The agent can inspect schemas, select data, query previous context and execute analytical code.
+The organisers' participant guide allows Startup entries to build on existing products, provided newly developed functionality is clearly identified.
 
-It should not receive the evaluation answer key or any instructions revealing planted anomalies.
+- The IGI repository is public. Its README states that all IGI code was written during the hackathon and separates it from Cairn.
+- Cairn is existing, privately maintained infrastructure. Its source is not public. Public IGI documentation must not link to private Cairn repositories or documents as though judges could follow them.
+- This specification and the IGI repository must explain the Cairn dependency well enough to understand IGI on its own: the contract summary in §12, a diagram of the flow, and a Cairn test double that implements the contract IGI uses, including the status extension.
+- The status extension is new Cairn platform work done during the hackathon window to support IGI. **Default position:** disclose it as such, publish its contract here, and claim only IGI repository code as entry work. Whether demonstrating it requires more under the public-code rules must be checked against the participant guide before submission.
+- The demo video identifies which parts are existing Cairn, the new Cairn extension and new IGI.
 
-### 5.4 Investigate iteratively
+## 6. Functional Workflow
 
-The agent may repeat the following cycle as necessary:
+### 6.1 Create a review [New IGI]
 
-1. Formulate an analytical question.
-2. Determine what information is required.
-3. Retrieve data through approved tools.
-4. Generate Python or invoke deterministic calculations.
-5. Execute the analysis.
-6. Inspect the results.
-7. Challenge the result or investigate further.
-8. Record an observation or proposed finding.
+The operator selects a reporting period and creates a review. IGI creates a `Review`.
 
-A successful investigation need not produce a finding. The agent may conclude that a suspected issue has a legitimate explanation.
+Creating a review does not touch Cairn. Starting the Cairn record is a separate, explicit operator action ("Open Cairn record"), so development runs don't create records nobody needs.
 
-### 5.5 Submit candidate evidence to Cairn
+On that action the backend:
 
-A proposed finding should have a supporting evidence package containing:
+1. finds the governance subject by its Cairn reference (`GET /api/intake/v1/subjects`);
+2. lists the procedures startable for it (`GET /api/intake/v1/subjects/{subjectReference}/procedures`) and picks the configured review procedure;
+3. starts the record (`POST /api/intake/v1/records`) with a source reference naming the review, such as `IGI review 2026-10`;
+4. stores the returned Cairn reference and step and slot ids on the `Review`.
 
-- The finding and its classification.
-- The data sources used.
-- The applicable policy and effective version.
-- The calculations and generated code.
-- Execution results.
-- Validation results.
-- Relevant assumptions and uncertainties.
-- A plain-English explanation.
+Retries follow Cairn's documented rules (§12.4).
 
-The vertical submits the appropriate components as Cairn candidate evidence using the existing HTTP/MCP intake interface.
+### 6.2 Import the information [New IGI]
 
-Where compatible, the agent proposes direct placement against the relevant procedure step and evidence slot. Otherwise the candidate remains in the Tray.
+The operator uploads the review's source files. Each file is:
 
-Submission does not mean acceptance.
+- stored as an immutable input version for the review;
+- given a unique source identifier;
+- hashed with SHA-256;
+- parsed into typed domain data where applicable;
+- validated structurally (§7.3);
+- recorded with reporting dates, units and provenance.
 
-### 5.6 Human review
+Missing or invalid data is reported, never silently repaired. Where mapping is ambiguous the operator resolves it before investigation.
 
-The operator opens the Cairn record.
+### 6.3 Investigate [New IGI]
 
-The reviewer can inspect the submitted material and accept, discard or request further investigation.
+The operator starts an `AnalysisRun`. Spark receives a broad instruction: review the supplied data against the applicable governance policies, identify matters that need attention and substantiate them.
 
-This happens in Cairn, not in a duplicated approval interface within IGI.
+Spark has no access to evaluation answer keys or to anything revealing planted anomalies (§15.2).
 
-Rejected or unaccepted material remains outside the accepted evidence set.
+It may repeat this cycle as often as its budget allows:
 
-### 5.7 Generate the committee pack
+1. formulate a question;
+2. decide what information it needs;
+3. retrieve data through its tools;
+4. write Python or call a deterministic check;
+5. run it;
+6. inspect the result;
+7. challenge the result or investigate further;
+8. record an observation or propose a finding.
 
-Once the relevant evidence has been accepted, the vertical retrieves an authoritative view of the accepted evidence and constructs a fixed `ReviewedSnapshot`.
+An investigation need not produce findings. Concluding that a suspected issue has a legitimate explanation is a valid outcome.
 
-The pack is generated from that snapshot, not from unreviewed agent observations or live mutable source data.
+### 6.4 Propose findings [New IGI]
 
-The pack identifies material findings, accepted evidence, outstanding uncertainties, potential exceptions and items for committee discussion.
+Spark calls `propose_finding` with a structured finding (§8.2). The backend checks that every cited source row, execution and check exists in this run. A finding whose material numbers have not been independently validated is stored as an unresolved observation, not a potential exception.
 
-It does not present proposed investment actions as approved committee decisions.
+### 6.5 Submit to Cairn [New IGI]
 
-The resulting pack is versioned and may itself be submitted to Cairn as candidate evidence for a further human acceptance step.
+The operator chooses which findings to submit. The backend, not Spark, submits each one:
 
-## 6. Demonstration Dataset
+- an **assertion** stating the finding (plain text, at most 4,000 characters);
+- a **file** holding the investigation package: methodology, inputs and their hashes, executed code, outputs, check results, assumptions and uncertainties.
 
-### 6.1 Dataset structure
+Each submission proposes a step and slot on the review's record. If the proposal doesn't fit, the candidate waits in the Tray unplaced. Every attempt is recorded in the submission ledger (§12.4).
 
-Create a realistic, entirely synthetic investment-governance dataset.
+Submission is not acceptance.
 
-It should contain:
+### 6.6 Human review in Cairn [Existing Cairn]
 
-- Three model portfolios with different investment objectives.
-- Two consecutive reporting periods.
-- Portfolio positions, values and reported weights.
-- Instrument identifiers and fund classifications.
-- Underlying fund asset-class exposures.
-- Investment mandates and risk limits.
-- Historical performance and benchmarks.
-- Provider fee information.
-- A previous investment committee's decisions and outstanding actions.
+The operator opens the record in Cairn from a link in IGI. There a person files each candidate onto a step as evidence or discards it. They may later void evidence.
 
-Suggested source formats are CSV, XLSX and PDF.
+Cairn has no "request further investigation" action. If the operator wants more investigation, they start it in IGI: a new analysis run on the review (MVP), or re-investigation of a single finding ([Stretch]).
 
-Use synthetic values and fictional entities. Financial conventions should nevertheless be internally coherent.
+### 6.7 Follow acceptance [Cairn extension, New IGI]
 
-The dataset should be complex enough to require cross-source analysis, but small enough for efficient hackathon testing.
+IGI polls the candidate-status operation for candidates in its ledger and shows each finding's state: unfiled, filed and active, filed and voided, discarded, unverifiable, or uncertain. IGI shows status and links to Cairn. It offers no accept or reject controls.
 
-### 6.2 Independent evaluation fixtures
+### 6.8 Generate the committee pack [New IGI]
 
-Maintain a separate test-fixture generator and answer key.
+Immediately before generation, IGI makes a fresh status call and builds an immutable `ReviewedSnapshot` from the candidates Cairn confirms as filed with active evidence (§13.2). The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data.
 
-The fixtures should contain examples of:
+If the verified evidence set later changes, the pack keeps its version and is marked stale; a newly generated pack supersedes it (§13.3).
 
-- Genuine policy exceptions.
-- Subtle problems requiring joins or calculations across sources.
-- Disagreements between reports.
-- Stale or missing information.
-- Unresolved historical committee actions.
-- Apparent anomalies that are not actually breaches.
-- Clean portfolios containing no material exceptions.
+## 7. Demonstration Data [New IGI]
 
-**Do not encode the expected findings into the agent's prompts, tools, data descriptions or runtime-accessible metadata.**
+### 7.1 Dataset structure
 
-The evaluator may know the planted issues. The investigating agent must not.
+An entirely synthetic, internally coherent investment-governance dataset with fictional entities:
 
-Tests should include multiple generated variations so the system cannot pass merely by recognising one fixed dataset.
+- three model portfolios with different objectives;
+- two consecutive reporting periods;
+- positions, values and reported weights;
+- instrument identifiers and fund classifications;
+- underlying fund asset-class exposures (look-through);
+- investment mandates and risk limits;
+- performance history and benchmarks;
+- provider fee information;
+- the previous committee's minutes, decisions and outstanding actions.
 
-The public repository may contain evaluation fixtures, but the runtime agent must have no access to their answer keys. Holdout scenarios should be introduced separately from development examples.
+Formats: CSV, XLSX and PDF. Complex enough to need cross-source analysis, small enough for fast iteration.
 
-### 6.3 Input validation
+### 7.2 Governance policies: two representations
 
-Implement deterministic checks for:
+Each policy is supplied twice:
 
-- Missing or duplicate records.
-- Invalid identifiers.
-- Inconsistent valuation dates.
-- Weights that do not reconcile.
-- Missing look-through coverage.
-- Unit and percentage ambiguity.
-- Reporting-period mismatches.
-- Missing policy applicability.
-- Invalid or inconsistent financial values.
+- **A human-readable document** (PDF), as the firm would write it. Spark uses it for interpretation, investigation and explanation.
+- **An authoritative structured table** of the same rules: limit, threshold, unit, portfolio scope, effective-from date, effective-to date, calculation methodology and a reference back to the clause in the document.
 
-These checks establish whether information is safe to analyse.
+Deterministic checks use only the structured table. Spark must not extract or invent authoritative numerical limits from policy prose.
 
-They do not constitute the complete investigative workflow.
+If the document and the table disagree, Spark records the disagreement as a finding in its own right and does not silently choose one. This matters most for allocation, concentration, exposure, fee and other numerical thresholds.
 
-## 7. Agent Architecture
+### 7.3 Input validation
 
-### 7.1 Initial design
+Deterministic checks at import:
 
-Start with **one Muse Spark investigation agent**, not multiple specialist agents.
+- missing or duplicate records;
+- invalid identifiers;
+- inconsistent valuation dates;
+- weights that do not reconcile;
+- missing look-through coverage;
+- unit and percentage ambiguity;
+- reporting-period mismatches;
+- portfolios with no applicable policy;
+- invalid or inconsistent financial values.
 
-The agent operates within a bounded execution loop managed by the TypeScript backend.
+These establish whether data is safe to analyse. They are not the investigation.
 
-Its context includes the review objective, available sources, relevant governance policy information and tool descriptions.
+## 8. Agent Architecture [New IGI]
 
-It does not need to load every source document into its prompt.
+### 8.1 Design
 
-Data should be retrieved selectively as the investigation develops.
+One Muse Spark agent in a bounded loop run by the TypeScript backend. No agent framework and no workflow engine: a loop that sends messages, executes the tool calls Spark makes, records them and stops on completion or budget exhaustion.
 
-### 7.2 Proposed tool capabilities
+Spark's context holds the review objective, the list of available sources, the policy summaries and the tool descriptions. It does not load every document into its prompt. It retrieves data as the investigation develops, through repeated tool calls.
 
-**Data discovery**
+### 8.2 Tools
 
-- `list_sources`: List available source datasets and documents.
-- `describe_source`: Retrieve schema, provenance, reporting period and field definitions.
-- `sample_rows`: Inspect a bounded sample of structured information.
-- `query_data`: Retrieve bounded, validated selections of domain data.
-- `get_policy`: Retrieve an applicable governance policy and effective date.
-- `get_previous_actions`: Retrieve earlier decisions and follow-up actions supplied as part of the review.
+Seven tools cover five capabilities. Every tool is read-only except the two that write to IGI's own investigation record. All are scoped to the current review.
 
-**Analysis**
+| Capability | Tool | What it does |
+|---|---|---|
+| Discover sources | `list_sources` | Lists the review's sources with schema, field definitions, units, reporting period, provenance and import validation issues. |
+| Retrieve data and policies | `read_data` | Returns a bounded selection from one source: chosen columns, filters, sort and row limit. Numbers come back as decimal strings. Previous committee actions are a source like any other. |
+| | `get_policy` | Returns a policy's document text by section, and its structured rules for a portfolio and date, with effective versions. |
+| Execute Python | `run_python` | Runs Python in Monty (§9). The code can call read-only data functions with the same scope and bounds as `read_data`. Returns values, standard output and errors. |
+| Trusted calculations | `run_check` | Runs a named, tested deterministic calculation, such as weight reconciliation, look-through exposure against a limit, concentration, fee change between periods, or performance recomputation. The catalogue is in the tool description; Spark decides whether and when to call them. |
+| Record work | `record_note` | Records an observation, hypothesis, assumption, open question or missing-information blocker. |
+| | `propose_finding` | Creates a structured finding: statement, classification, portfolios, policy rule and version, cited source rows, execution and check ids, explanation, assumptions and uncertainties. |
 
-- `execute_python`: Execute agent-generated Python through Monty.
-- `run_validated_check`: Invoke a deterministic, tested financial or data-quality calculation.
-- `get_execution_result`: Retrieve an earlier execution result and its provenance.
+Spark has no Cairn tools and no Cairn credentials. Record start, submission, status polling, snapshots and pack generation belong to the backend.
 
-**Investigation management**
+### 8.3 Agent behaviour
 
-- `record_observation`: Preserve an intermediate finding or uncertainty.
-- `propose_finding`: Create a structured candidate finding.
-- `request_missing_information`: Mark a specific investigation as blocked by unavailable evidence.
+The system prompt asks Spark to:
 
-**Cairn integration**
+- explore the data rather than assume known problems;
+- test hypotheses with executable analysis;
+- compare against the correct policy version and effective date;
+- flag disagreement between a policy document and its structured rules;
+- explain why something is or is not material;
+- investigate contradictory evidence;
+- identify results that depend on uncertain assumptions;
+- cite the sources, executions and checks behind each finding;
+- avoid inventing absent values or unsupported explanations;
+- stop when coverage is sufficient or the budget runs out.
 
-- `start_review_record`: Initiate or locate a Cairn review record.
-- `submit_evidence`: Submit authorised candidate evidence via Cairn.
-- `get_reviewed_evidence`: Retrieve authoritative accepted-evidence information through a verified integration mechanism.
+Spark cannot change investment data or anything in Cairn.
 
-These are proposed tools belonging to the vertical application. They are **not claims that Cairn currently exposes matching MCP tools**.
+### 8.4 Budgets and final status
 
-### 7.3 Agent behaviour
+Each run has configured limits on model tokens and estimated cost, wall-clock time, tool calls, Python executions, and rows and bytes returned by data tools.
 
-The agent should:
+A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion.
 
-- Explore relevant data rather than assuming known problems.
-- Test hypotheses with executable analysis.
-- Compare information against the correct policy version.
-- Explain why something is or is not material.
-- Investigate contradictory evidence.
-- Identify when a result depends on uncertain assumptions.
-- Preserve the methods used to derive conclusions.
-- Avoid inventing absent values or unsupported explanations.
-- Stop when sufficient review coverage has been achieved or resources are exhausted.
+### 8.5 Investigation trace
 
-The agent must not make consequential changes directly to investment data or Cairn evidence records.
+Every model turn, tool call, argument, result, Python source, execution result, note and finding is persisted in order with a correlation id. The trace is the record of what the agent did.
 
-### 7.4 Execution limits
+Spark's visible message text, including any short message it writes before a tool call, is shown as labelled model output.
 
-Each analysis run must have configurable budgets for:
+Spark's reasoning is never visible to IGI. The Responses API returns it only as encrypted items, which IGI sends back to Meta on each turn of the same run so Spark keeps its line of thought between tool calls (§10.1). IGI holds those items in memory for the run only. It never decrypts, logs, persists or displays them, and the trace records only reasoning token counts. The trace is not presented as the model's complete internal reasoning.
 
-- Model calls and tokens.
-- Total duration.
-- Tool invocations.
-- Sandbox executions.
-- Rows and bytes returned by data tools.
-- Analysis retries.
-- Total estimated API cost.
+## 9. Sandboxed Python with Monty [New IGI]
 
-The agent should finish with a clear status: completed, completed with uncertainties, blocked, failed or budget-exhausted.
+### 9.1 Purpose
 
-Budget exhaustion must not be misrepresented as completion.
+`@pydantic/monty` runs agent-written Python from the TypeScript backend without giving that code access to the host. It is the exploratory calculation engine.
 
-## 8. Sandboxed Python with Monty
+### 9.2 Supported Python
 
-### 8.1 Purpose
+Monty is not CPython. It has no third-party packages: no pandas, no NumPy. According to its limitations documentation, and confirmed by the smoke test (§9.7), it supports:
 
-Use `@pydantic/monty` from the TypeScript backend to execute agent-generated Python.
+- simple classes with `__init__`, common dunder methods and class variables;
+- `@dataclass` with `eq=` and `frozen=`, `field()` and `__post_init__` (not `fields()` or `asdict()`);
+- f-strings, including format specs, for floats and `Decimal`;
+- the modules `decimal` (from Monty 1.4.0; 1.3.0 has none), `datetime`, `math`, `json`, `re`, `collections` and `itertools`, each with documented divergences from CPython.
 
-Monty is the preferred exploratory calculation engine because it supports controlled Python execution without giving generated code unrestricted access to the host environment.
+It does not support:
 
-### 8.2 Execution contract
+- class inheritance or metaclasses;
+- `@classmethod`, `@staticmethod` or `@property`;
+- user-defined exceptions;
+- generator functions (`yield`); generator expressions are materialised as lists;
+- `bytes` patterns or the `VERBOSE` flag in `re`.
 
-Each execution receives:
+Each unsupported construct raises `NotImplementedError` with a message naming it, which is what Spark sees. `statistics` and `fractions` are absent. Anything else not listed is added to the smoke test before it is relied on.
 
-- The generated Python source.
-- Explicitly permitted input data or references.
-- A bounded set of read-only host functions.
-- Execution resource limits.
-- An execution identifier and correlation context.
+The `run_python` tool description carries a short guide: write plain functions over lists and dicts, convert numbers with `Decimal(str)`, avoid the unsupported constructs above, and import only the listed modules. Parse errors, runtime errors and limit violations are returned to Spark verbatim (truncated) so it can correct its code. Each failed attempt counts against the run's budget.
 
-The result records:
+### 9.3 Execution contract
 
-- Source code.
-- Input identities and hashes.
-- Returned values.
-- Standard output where relevant.
-- Errors and execution limits.
-- Start/end timestamps and duration.
-- Runtime and dependency versions.
+Each execution receives the Python source, the permitted inputs or data references, a fixed set of read-only host functions, explicit resource limits, and an execution id with correlation context.
 
-### 8.3 Security boundaries
+Each result records the source, input identities and hashes, returned values, standard output, errors and limits hit, start and end times, and Monty and IGI versions.
 
-The sandbox must not receive application credentials, unrestricted database access, arbitrary network access or uncontrolled filesystem access.
+Values crossing the boundary, as observed in the smoke test:
 
-Host functions must validate every request and enforce explicit scope and limits.
+- Python dicts arrive in JavaScript as `Map`, integers beyond 2^53 as `bigint`, and `Decimal` and date values as tagged objects such as `{"__monty_type__": "Decimal", "value": "3.30"}`. The adapter normalises results to JSON, and the tool guide asks code to return decimals as strings.
+- A host function that throws raises `RuntimeError` inside the sandbox, where the code can catch it, and the session survives. Host functions report validation failures this way.
 
-Set memory and execution-time limits.
+### 9.4 Resource limits
 
-Treat model-generated code as untrusted, even though Monty is designed for this use case. Monty's security boundary is language-level isolation, not a substitute for every layer of production infrastructure security.
+Every limit is set explicitly; IGI never relies on defaults, some of which are unlimited. From Monty 1.4.0's declarations and the smoke test:
 
-### 8.4 Numerical correctness
+- **Session limits:** `maxMemory`, `maxFeedDurationSecs`, `maxTurnDurationSecs`, `maxRecursionDepth`, `maxSuspensions` and `maxTotalSleepSecs`. Omitted limits are unlimited, except recursion depth and suspensions, which default to 1,000. Every host-function call is a suspension, so `maxSuspensions` also caps data calls per execution.
+- **Exceeding a limit**, as tested: feed duration raises `TimeoutError`, memory `MemoryError`, recursion `RecursionError`, and suspensions `RuntimeError: suspension limit N exceeded`. The error goes back to Spark and the session survives each time. `maxTurnDurationSecs` and `maxTotalSleepSecs` are set but were not triggered; sleeps return immediately under `osPolicy`.
+- **Pool options:** `requestTimeout` (off by default) kills a wedged worker and surfaces `MontyCrashedError` with `timedOut: true`; that session is lost and the pool replaces the worker. `maxProcesses` (default: CPU count) and `checkoutTimeout` (default: wait forever) are also set.
+- **`osPolicy`** fixes the clock, makes `sleep` return immediately and seeds `random`, so reruns are reproducible.
+- **Output:** IGI caps returned output in its own print callback, truncating. Monty's `CollectString` cap rejects a whole buffered burst of output rather than truncating it.
 
-For critical financial metrics:
+### 9.5 Security boundaries
 
-- Define units and rounding explicitly.
-- Prefer decimal or fixed-precision calculations where appropriate.
-- Avoid relying on model-generated mental arithmetic.
-- Independently validate important outputs using trusted calculations.
-- Preserve calculation methodology.
-- Flag missing or incompatible input data.
+The sandbox receives no credentials, no database access, no network and no filesystem. Host functions validate every request and enforce review scope and row and byte limits.
 
-A calculation can be computationally correct while applying the wrong investment policy or methodology. Those cases must remain reviewable.
+Confirmed by the smoke test: file access raises `PermissionError`; `os.environ` and `os.getenv` are unsupported; `socket`, `subprocess`, `urllib` and third-party packages are absent. `installDependencies` is refused, which confirms the pure-Monty worker rather than an embedded CPython one.
 
-### 8.5 Limitations
+Model-written code is treated as untrusted. Monty's isolation is language-level and does not replace host-level security.
 
-Monty is not full CPython and does not provide arbitrary third-party libraries such as Pandas and NumPy.
+### 9.6 Numerical correctness
 
-For the MVP, use native structures and supported built-in modules for modest datasets.
+- Units and rounding are defined explicitly for every financial metric.
+- Monetary values and weights never cross from JavaScript into Monty as JavaScript numbers, which become Python floats: in the smoke test, `Decimal(x) + Decimal(y)` with JavaScript `0.1` and `0.2` gives `0.3000000000000000166533453694`. Data functions return decimal strings; code converts them with `Decimal`; results come back as strings.
+- Spark's mental arithmetic is never relied on.
+- Every material number in a finding is validated independently, by a `run_check` result or a backend recomputation in decimal arithmetic. Without that, the finding stays an unresolved observation.
+- Methodology is preserved with each result.
+- Missing or incompatible inputs are flagged.
 
-Larger-scale data processing, advanced statistical analysis or specialist financial calculations may later use a dedicated Python service.
+A calculation can execute correctly and still apply the wrong policy or methodology. Successful execution does not establish that the method or its assumptions are right, so methodology remains visible for review.
 
-Do not add that infrastructure until required.
+### 9.7 Runtime and deployment
 
-## 9. Technology and Deployment
+Under Node, `@pydantic/monty` is a native binding that runs code in worker subprocesses. It needs a host that permits subprocesses; edge and serverless function runtimes generally don't. A WebAssembly build runs in `worker_threads` where subprocesses are unavailable.
 
-### 9.1 Preferred stack
+IGI pins `@pydantic/monty` 1.4.0 exactly. It was published on 26 October 2026 under npm's `next` tag; `latest` is still 1.3.0, which has no `decimal` module. Move to `latest` once it reaches 1.4.0 or later, re-running the smoke test.
 
-| Component | Proposed technology |
+Smoke test, 27 October 2026 (`npm run smoke:monty` in `server/`):
+
+| Platform | Result |
 |---|---|
-| Web frontend | React / TypeScript |
-| Application API | Node.js / TypeScript |
-| Agent orchestration | TypeScript with Meta Model API |
-| Reasoning model | Muse Spark, initially `muse-spark-1.3` |
-| Sandboxed computation | `@pydantic/monty` |
-| Operational database | Supabase PostgreSQL |
-| File storage | Supabase Storage or equivalent |
-| Server hosting | Node-compatible managed service, initially DigitalOcean |
-| Frontend hosting | Same application deployment or Cloudflare |
-| Evidence and records | Existing Cairn via HTTP/MCP |
-| Observability | OpenTelemetry traces and structured logs |
+| Windows 11 x64, Node 26.8.2 | All required checks pass. Pool start about 0.4 s; checkout tens of milliseconds. |
+| Linux x64, Node 24.22.1, Debian trixie (glibc 2.41), in Docker | All required checks pass. |
+| Linux x64, Debian bookworm (glibc 2.36), in Docker | Monty does not load: its binary needs glibc 2.38 or later (`undefined symbol: __isoc23_sscanf`). |
 
-Use the simplest viable runtime. Monty's native Node integration requires worker subprocesses, so don't assume it can execute directly in a serverless runtime that does not support them.
+The service is therefore deployed as a container image based on Debian trixie or Ubuntu 24.04 or later. A buildpack on an older base image won't load Monty, and nor will Alpine, which has no musl binary. The Docker run stands in for DigitalOcean; the smoke test runs again on the deployed service at first deploy.
 
-Start with one backend deployment where possible. Introduce a dedicated execution worker if reliability or workload isolation requires one.
+Larger-scale processing or specialist libraries may later need a dedicated Python service. It is not added until required.
 
-### 9.2 Repository boundary
+## 10. Technology and Deployment [New IGI]
 
-Create a standalone public repository containing the vertical application's new source code, synthetic data generator, evaluation harness, tests, documentation and demo instructions.
+### 10.1 Stack
 
-Keep Cairn's existing proprietary implementation in its separate repository.
+| Component | Choice |
+|---|---|
+| Frontend | React / TypeScript, built and served by the backend |
+| Backend | One Node.js / TypeScript service: API, agent loop, Monty, Cairn client |
+| Model API | Meta Model API, OpenAI-compatible Responses API (`POST /v1/responses`), stateless with `store: false`, `muse-spark-1.3`, called with plain `fetch` or the OpenAI SDK pointed at Meta's base URL; no agent framework |
+| Sandbox | `@pydantic/monty` |
+| Database | Supabase PostgreSQL |
+| File storage | Supabase Storage |
+| Hosting | One DigitalOcean service that permits subprocesses, deployed as a container image with glibc 2.38 or later (§9.7) |
+| Operator access | A single operator login; no role system |
+| Observability | Structured JSON logs with correlation ids across model calls, tool calls, executions and Cairn requests; OpenTelemetry optional |
 
-The application must communicate with Cairn exclusively through authorised external interfaces.
+**Before substantial implementation, Meta Model API access is validated from the UK with a real tool-calling request to `muse-spark-1.3`**, recording latency, rate limits and cost.
 
-Existing Cairn functionality must be clearly distinguished from functionality created during the hackathon.
+The probe is `npm run probe:meta` in `server/`. It reads `MODEL_API_KEY` from the environment or from `server/.env`, which is gitignored. It makes one tool-calling round trip on Chat Completions and one on the Responses API, and prints latency, rate-limit headers, usage and estimated cost. It tested both because Chat Completions does not carry the model's reasoning between turns, while the Responses API can without storing the conversation at Meta.
 
-### 9.3 Suggested structure
+**Decided 27 October 2026: the agent loop uses the Responses API, statelessly.** An investigation is a long run of tool turns, and Spark should keep its line of thought across them. Every model request:
 
-- `apps/web` — React frontend.
-- `apps/server` — TypeScript API, orchestration and application services.
-- `packages/domain` — shared types and domain rules.
-- `packages/analysis` — Monty adapter and deterministic calculations.
-- `packages/cairn-client` — Cairn integration adapter.
-- `packages/evaluation` — blind test harness and scoring.
-- `fixtures` — synthetic source-data generation and scenarios.
-- `docs` — architecture, investigation contracts and demo guidance.
+- sets `store: false` and `include: ["reasoning.encrypted_content"]`, and never uses `previous_response_id`, so Meta keeps nothing between requests;
+- sends the whole run so far: the brief, every output item Spark produced (reasoning, messages and function calls) unchanged, and a `function_call_output` for every call. A reasoning item without a `summary` gets `summary: []`. Resent input is mostly cached, and cached input costs about an eighth of the normal input price;
+- answers every function call in a turn, matched by `call_id`, after validating its arguments: the API does not guarantee they match the schema;
+- sets `reasoning.effort` per run (default `medium`) and `max_output_tokens`, which bounds reasoning and visible output together. A response with `status: "incomplete"` is recorded as cut off, never as Spark choosing not to call a tool.
 
-This is a proposed structure, not a requirement to create every package on day one.
+The encrypted reasoning items are held in memory for the run only (§8.5). An interrupted run cannot resume part-way through its conversation; it restarts.
 
-## 10. Application Data Model
+Probe result, 27 October 2026, run from the development machine in the UK. Both surfaces work with `muse-spark-1.3`:
 
-The vertical owns operational data; Cairn owns the accepted process evidence.
+| | Chat Completions | Responses (`store: false`) |
+|---|---|---|
+| Tool round trip | Correct call and arguments; correct answer | Correct call and arguments; correct answer; encrypted reasoning returned and accepted on replay |
+| Latency, call 1 / call 2 | 2.7 s / 3.7 s | 1.7 s / 1.4 s |
+| Call 2 tokens in / out (reasoning) | 783 / 362 (321) | 897 / 296 (256) |
+| Cost of the round trip | $0.0033 | $0.0029 |
 
-The initial conceptual entities are:
+The response headers report 3,000 requests and 4,000,000 tokens a minute for the team, matching the published limits. There was one sample per surface, so latency is indicative only. Before calling the tool, the Responses API also returned a short visible message.
+
+A dedicated execution worker is introduced only if reliability or workload isolation requires it.
+
+### 10.2 Repository
+
+The public IGI repository holds the application, the synthetic data generator, the evaluation harness, the Cairn test double, tests, documentation and demo instructions.
+
+Suggested layout, created only as needed:
+
+- `server/`: API, agent loop, tools, Monty adapter, checks, Cairn client, pack generation;
+- `web/`: React UI;
+- `fixtures/`: scenario generator and development scenarios;
+- `eval/`: evaluation harness and scoring; answer keys live here, outside anything the server reads;
+- `docs/`: specification, architecture, Cairn contract summary, demo guide.
+
+## 11. Application Data Model [New IGI]
+
+IGI owns operational data. Cairn owns accepted process evidence. Cairn is not used as a store for portfolio rows.
 
 | Entity | Responsibility |
 |---|---|
-| `Review` | Reporting period, status, review scope and Cairn correlation |
-| `SourceDocument` | File metadata, source version, hash, origin and reporting period |
-| `Portfolio` | Domain portfolio identity and descriptive information |
-| `Position` | Instrument holding, value, weight and valuation information |
-| `InstrumentExposure` | Underlying exposures and their effective dates |
-| `GovernancePolicy` | Extracted applicable limits and policy provenance |
-| `AnalysisRun` | Model, prompt version, configuration, state and budget |
-| `Investigation` | Hypothesis, supporting observations and analysis trail |
-| `CodeExecution` | Generated code, inputs, outputs, errors and runtime metadata |
-| `Finding` | Proposed issue, materiality, evidence and uncertainty |
-| `CairnSubmission` | Candidate ID, proposed destination and submission status |
-| `ReviewedSnapshot` | Fixed set of authoritatively accepted evidence and source versions |
-| `CommitteePack` | Generated output, version, snapshot reference and hashes |
+| `Review` | Reporting period, scope, status, Cairn record reference and step and slot ids |
+| `SourceDocument` | File, version, SHA-256 hash, origin, reporting period, validation results |
+| Domain rows | Portfolios, positions, exposures, performance, fees, committee actions, and structured policy rules (`PolicyRule`), each linked to its `SourceDocument` |
+| `AnalysisRun` | Model, prompt and tool versions, configuration, budget, final status |
+| `TraceEvent` | One step of the trace: model turn, tool call, note |
+| `CodeExecution` | Source, inputs and hashes, outputs, errors, limits, runtime versions |
+| `Finding` | Statement, classification, materiality, citations, validation state, uncertainty, version |
+| `CairnSubmission` | The submission ledger entry (§12.4) |
+| `ReviewedSnapshot` | The fixed set of verified, accepted, active evidence and the source versions behind it |
+| `CommitteePack` | Generated output, version, snapshot reference, hash, stale/superseded state |
 
-Exact database schemas should be derived from implementation requirements.
+Identifiers stay stable through the investigation and publishing lifecycle. Exact schemas follow implementation.
 
-Preserve stable identifiers throughout the investigation and publishing lifecycle.
+## 12. Cairn Integration
 
-Avoid making Cairn a duplicate store for all operational portfolio rows.
+### 12.1 The existing intake contract [Existing Cairn]
 
-## 11. Cairn Integration
+IGI uses Cairn's candidate intake, version 1. Every request carries `Authorization: Bearer <agent key>`. The backend holds the key; nothing else does.
 
-### 11.1 Existing capabilities to reuse
+| Operation | Route | Notes |
+|---|---|---|
+| Find a subject | `GET /api/intake/v1/subjects?reference=` | Needs "Start records" |
+| List startable procedures | `GET /api/intake/v1/subjects/{subjectReference}/procedures` | Needs "Start records" |
+| Start a record | `POST /api/intake/v1/records` | Needs "Start records". Returns the record, its steps and slots, and `repeated` |
+| Find open records | `GET /api/intake/v1/records?reference=` | Needs "Look up records". Returns only open, workspace-visible records with incomplete steps |
+| Get a record's open steps | `GET /api/intake/v1/records/{cairnReference}/steps` | Needs "Look up records" |
+| Submit a file | `POST /api/intake/v1/candidates` | Raw bytes streamed, `Content-Disposition` filename; `Cairn-Source-Reference`, `Cairn-Proposed-Step` and `Cairn-Proposed-Slot` headers |
+| Submit an assertion | `POST /api/intake/v1/candidates/assertion` | JSON: `assertionText`, `sourceReference`, `proposedStepId`, `proposedSlotId` |
+
+Submissions return `201` with `candidateId` and `placement`. Anything other than `placed` means the candidate is in the Tray unplaced.
+
+Constraints IGI must respect:
+
+- **Assertions** are plain text, at most 4,000 characters. Markdown and links are not rendered.
+- **Files** must be a type Cairn accepts for in-app uploads; PDF, HTML, Markdown, JSON and CSV are among them. The investigation package format is chosen by how it previews in Cairn, checked in Gate A.
+- **Malware scanning:** in production an agent's file cannot be opened, previewed or filed until scanned, and file candidates are refused if scanning is off. Development deployments may relax the hold.
+- **Source references** are display text: at most 200 characters, one line, shown to people in quotation marks. They are not unique and are not an idempotency key.
+- **Limits per agent:** 60 requests per 10 minutes across all routes; 100 unfiled candidates; 25 started records nobody has acted on. A started record can be cancelled by a person but never deleted.
+- **Candidate submission is not idempotent.** A retried submission may land twice.
+- **Record start** with the same procedure, subject and source reference returns the first record only while nobody has acted on it.
+- Errors are RFC 9457 problem details with a stable `code`. A refusal carrying a `code`, `429` included, created nothing.
+
+Cairn's MCP server offers the same operations except files. IGI uses HTTP only.
+
+### 12.2 Required Cairn setup [Existing Cairn]
+
+Configured by a Workspace Admin in the chosen Cairn environment:
+
+- a subject for the fictional firm's investment-governance programme;
+- a published procedure for the periodic committee preparation cycle, with steps:
+  1. Source data and reconciliation
+  2. Portfolio allocation and risk review
+  3. Fund, manager and fee oversight
+  4. Historical decisions and outstanding actions
+  5. Committee pack preparation
+- on each step, an assertion slot for finding statements and a document slot for investigation packages;
+- an agent named "IGI" with "Look up records" and "Start records" permissions, linked to the demo operator's Cairn user, who must hold a role that can start records;
+- an agent key stored only in the IGI backend's environment. Keys expire (90 days by default).
+
+**Demo environment.** Default: Cairn's Dev deployment. It relaxes the hold on unscanned agent files, so file candidates can be opened and filed straight away. The choice and its scanning configuration are confirmed during Gate A. If a stricter environment is used, the demo allows for scanning before filing.
+
+### 12.3 Submission content [New IGI]
+
+For each submitted finding:
+
+- **Assertion:** the backend composes it from the structured finding: statement, classification, key figures with units, the policy rule and effective version, and IGI's finding and run ids. It fits within 4,000 characters of plain text.
+- **Investigation package file:** methodology, input references and hashes, executed code, outputs, check results, assumptions and uncertainties.
+- **Source reference:** short and readable by the people filing it, such as `IGI review 2026-10, finding F-07`.
+- **Placement:** the step and slot the backend maps the finding's classification to, using the ids from the review's record.
+
+Cairn attributes every submission to the IGI agent; the backend submits under that identity.
+
+### 12.4 Submission ledger and reliability [New IGI]
+
+Every submission attempt gets a `CairnSubmission` row before the request is sent:
+
+| Field | Content |
+|---|---|
+| Ledger id | IGI's own id |
+| Finding id and version | What was submitted |
+| Kind | `assertion` or `file` |
+| Payload hash | SHA-256 of the exact bytes or text sent |
+| Source reference | As sent |
+| Proposed step and slot | As sent |
+| Outcome | `sending`, `submitted`, `refused`, `uncertain` |
+| Candidate id and placement | When Cairn returned them |
+| Error code | When Cairn refused |
+| Cairn status | Latest status read-back result and when it was read |
+
+Rules:
+
+- `submitted` only when Cairn returned a `candidateId`.
+- `refused` when Cairn returned a problem with a `code`. Nothing was created; resending is safe. `429` may be retried automatically after `Retry-After`.
+- `uncertain` after a timeout, dropped connection or response without a usable body. A missing response is never treated as a rejection. **Uncertain submissions are never retried automatically.**
+- Uncertain entries are shown to the operator, who checks Cairn's Tray and either resends (accepting that a duplicate may need discarding in Cairn) or abandons the entry.
+- The status read-back resolves only candidates whose id IGI holds. It cannot resolve a submission whose `candidateId` never arrived.
+
+Record start follows Cairn's rules: always send a source reference; after an unclear outcome, look for an open record for the subject (`GET /api/intake/v1/records?reference=`) before starting again; remember that once a person acts on the record, a repeated start creates a second record.
+
+### 12.5 Candidate-status read-back [Cairn extension]
+
+**Status:** authorised by founder decision on 27 October 2026, to be recorded in Cairn's decision log. The contract below, including its permission, omission and visibility rules, was approved as the API boundary on 27 October 2026. Not built. IGI codes against it as written; any change to a name, field or rule is a revision of this section, agreed before the Cairn change merges.
 
-The existing candidate-intake contract documents the following operations:
+#### Operation
 
-- Finding subjects and startable procedures.
-- Starting records under an authorised agent identity.
-- Finding compatible, placeable records and steps.
-- Submitting assertions and links through HTTP/MCP.
-- Uploading file candidates through HTTP.
-- Proposing a target step and evidence slot.
-- Human acceptance of candidates in the Cairn application.
-- Attribution of the originating agent and accepting human.
+```http
+GET /api/intake/v1/candidates?id={candidateId}&id={candidateId}
+Authorization: Bearer cairn_ak_...
+```
 
-Use Cairn's published contract rather than inventing new API shapes.
+- 1 to 100 candidate ids per request. Duplicates are collapsed. No ids, more than 100, or a malformed id is `400 validation.failed`.
+- Available to every agent that can submit. No new permission: the admin who allowed the submission has allowed its disposition to be known.
+- An MCP tool, `get_candidate_status`, offers the same operation, as every non-file intake operation has an MCP equivalent.
 
-For example, the existing surfaces include:
+#### Response
 
-- `POST /api/intake/v1/records`
-- `GET /api/intake/v1/records/{cairnReference}/steps`
-- `POST /api/intake/v1/candidates`
-- `POST /api/intake/v1/candidates/assertion`
-- MCP tool `start_record`
-- MCP tool `submit_candidate`
+```json
+{
+  "items": [
+    { "candidateId": "0199a...", "status": "unfiled", "evidence": null },
+    { "candidateId": "0199b...", "status": "discarded", "evidence": null },
+    {
+      "candidateId": "0199c...",
+      "status": "filed",
+      "evidence": {
+        "cairnReference": "EVI-7KQ2-M9XD-4HPA-K",
+        "status": "active",
+        "filedUtc": "2026-11-02T10:14:03Z",
+        "voidedUtc": null,
+        "recordReference": "CAI-4HW8-2TNC-9RFE-B",
+        "stepId": "0199...",
+        "slotId": "0199..."
+      }
+    }
+  ]
+}
+```
 
-File upload uses the HTTP endpoint, not the MCP tool.
+- `status` is the candidate's lifecycle: `unfiled`, `filed` or `discarded`. `filed` and `discarded` are terminal.
+- `evidence.status` is the evidence's state: `active` or `voided`. Voiding is one-way.
+- `evidence.cairnReference` is the evidence item's immutable reference. Filed evidence content cannot change in Cairn; only its status and some descriptive metadata can. The reference plus its status is therefore the version IGI needs.
+- `recordReference`, `stepId` and `slotId` say where the candidate was filed, which may differ from where it was proposed. They are returned only to agents with "Look up records", the permission that already governs record identity on this surface.
 
-An agent's proposed step placement is not accepted evidence. It remains a candidate until a human files it.
+The four states the product needs map onto Cairn's model:
 
-### 11.2 Required Cairn setup
+| Product state | Response |
+|---|---|
+| Unfiled | `status: "unfiled"` |
+| Discarded | `status: "discarded"` |
+| Filed | `status: "filed"`, `evidence.status: "active"` |
+| Voided | `status: "filed"`, `evidence.status: "voided"` |
 
-Create an appropriate subject, such as the fictional firm's investment governance programme.
+#### Boundaries
 
-Create and publish a procedure covering the periodic committee preparation cycle.
+- An agent sees only candidates it submitted. Ids that don't exist, belong to another agent or another workspace, or are not agent submissions are **left out of `items`**. These cases cannot be told apart, and a request whose ids are all unknown returns `200` with an empty list.
+- If the record holding the evidence is restricted to named people, the candidate reports `filed` with `evidence: null`. Candidates filed before the extension existed report the same. IGI treats both as unverifiable.
+- No evidence content, record names, comments, subject details, user ids or names, or void reasons are returned. An authorised person can see who filed or voided an item, and why, in Cairn from the evidence reference.
+- Nothing can be filed, discarded, voided or changed through it.
+- Every request is audited against the agent and key, like lookups. It counts against the 60-requests-per-10-minutes limit.
+- Authentication, workspace switches, revocation and tenant isolation behave as on every other intake route.
 
-Suggested steps:
+Polling is enough. No webhooks or subscriptions.
 
-1. Source data and reconciliation.
-2. Portfolio allocation and risk review.
-3. Fund, manager and fee oversight.
-4. Historical decisions and outstanding actions.
-5. Committee pack preparation.
+#### How IGI uses it [New IGI]
 
-Give the procedure suitable evidence slots for files and assertions.
+- One batched request per minute while any ledger entry is `unfiled`, a request when the operator refreshes, one immediately before building a snapshot, and one for a pack's snapshot candidates whenever that pack is opened. Well within the rate limit. Once nothing is unfiled, polling stops, so a later void is detected when the pack is next opened or refreshed, not continuously.
+- An entry is **snapshot-eligible** only when `status` is `filed`, `evidence` is present and `evidence.status` is `active`.
+- Unfiled, discarded, voided, unverifiable (`evidence: null`), uncertain and missing entries are never included in a snapshot.
 
-Register a named IGI agent in Cairn, enable candidate intake and grant only the required lookup/start capabilities.
+### 12.6 Cairn test double [New IGI]
 
-Link the agent to an authorised user where Cairn's record-start rules require it.
+IGI ships an in-process fake of the routes in §12.1 and §12.5, with the same shapes, error codes and limits. It lets judges and the evaluation harness run IGI without Cairn and lets tests drive every status transition. The real Cairn is used only for a small number of end-to-end runs (§15.5).
 
-Use an agent key stored securely on the vertical backend.
+## 13. Review and Publishing Semantics [New IGI]
 
-### 11.3 Submission strategy
+### 13.1 Acceptance is not approval
 
-Submit findings as a combination of concise assertions and evidence files.
+IGI keeps these distinct, in data and in wording:
 
-An evidence file may contain an investigation package: methodology, input references, executed code, outputs and calculation validation.
+- candidate evidence submitted by the IGI agent;
+- evidence filed by a named person in Cairn;
+- findings supported by that evidence;
+- findings expressly endorsed by decision-makers;
+- committee decisions.
 
-Use stable source references to correlate submissions with analysis runs.
+Cairn's filing is never presented as approval of a finding, a recommendation or a decision. IGI may keep agent findings and their data independently, but never presents them as human-accepted until Cairn confirms it.
 
-Cairn's intake does not guarantee idempotent candidate submission. The vertical must maintain its own submission ledger and reconcile uncertain outcomes rather than blindly retrying.
+### 13.2 Reviewed snapshot
 
-Similarly, record-start retries must respect Cairn's documented conditional repeat behaviour.
+Built from a status read-back made immediately before generation. It records:
 
-### 11.4 Authoritative evidence read-back — integration gate
+- the Cairn record reference;
+- for each eligible candidate: candidate id, evidence reference, filing time, record, step and slot;
+- the IGI finding and version each candidate came from;
+- source document hashes;
+- policy rule versions;
+- execution and check references;
+- the generation time and a hash of the snapshot.
 
-**This is the primary unverified integration requirement.**
+Only snapshot-eligible entries are included (§12.5). The snapshot is immutable.
 
-Before implementing committee-pack publishing:
+### 13.3 Stale and superseded packs
 
-1. Inspect Cairn's current authenticated application API, read models and MCP interface.
-2. Verify whether an independently deployed vertical can legitimately retrieve accepted evidence and its provenance.
-3. Establish how the vertical authenticates for this operation and which Cairn user's permissions apply.
-4. Confirm that pending, discarded and accepted candidates can be distinguished reliably.
-5. Confirm that evidence changes and historical versions can be detected.
+IGI re-checks a pack's snapshot whenever it polls and when the pack is opened. If any entry is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. It is never rewritten. A newly generated pack supersedes it, and both remain in the pack history.
 
-The currently documented external agent-key intake surface provides limited lookup information, not a general accepted-evidence read API.
+### 13.4 Pack content
 
-Do not assume that the normal Cairn UI's richer endpoints are approved for external integration.
+An HTML pre-meeting pack, exported to PDF with the browser's print function:
 
-If a suitable read operation is unavailable, propose the smallest authorised integration or a controlled human-generated export as a fallback. Do not bypass Cairn authorisation or directly query its database.
+**Executive overview:** review period and portfolios; data coverage and validation status; number and type of potential exceptions; areas needing committee attention.
 
-**Final committee-pack publication must not claim authoritative human sign-off unless the accepted evidence state has actually been verified.**
+**Portfolio overview:** allocation figures, changes between periods, charts from reviewed information.
 
-Any required Cairn core extension must be separately scoped and assessed against the hackathon's public-code and new-work rules.
+**Material findings:** the potential issue, the applicable policy rule and version, supporting calculations and comparisons, explanation and uncertainties, evidence references, points for committee discussion.
 
-## 12. Review and Publishing Semantics
+**Outstanding governance items:** missing data and unresolved investigations, previous committee actions still open, matters needing human judgement.
 
-### 12.1 Evidence acceptance versus conclusion approval
+**Appendix:** data source register, analysis methods, calculation and investigation references, accepted evidence manifest, generation and version information.
 
-The system maintains a distinction between:
+The pack never invents recommendations, market commentary or committee decisions. A pack with no exceptions is a valid result: clean findings and validated coverage are worth reporting.
 
-- Candidate evidence submitted by an agent.
-- Evidence accepted by an authorised human.
-- Findings supported by that evidence.
-- Findings expressly endorsed by decision-makers.
-- Committee decisions.
+## 14. User Interface [New IGI]
 
-Cairn's existing acceptance mechanism must not be presented as approval of an investment recommendation.
+Small and coherent. Visual polish comes after the gates in §17.1 are passed.
 
-### 12.2 Reviewed snapshot
+- **Reviews:** a list of reviews with period, status and pack versions.
+- **Review page**, with four tabs:
+  - **Sources:** upload, metadata, reporting dates, validation issues.
+  - **Investigation** (the centrepiece): the chronological trace of real tool calls, data accessed, Python run, inputs, outputs, notes and findings, with follow-up investigations visible as such. Readable without reading every line of code: summaries first, code and data on expansion.
+  - **Findings:** each finding with classification, figures, citations, validation state, submission ledger state and Cairn status, and a link to the Cairn record. Buttons to submit to Cairn and to resolve uncertain submissions. No accept or reject controls.
+  - **Pack:** the snapshot, preview, print to PDF, history, stale and superseded markers.
 
-The vertical creates a `ReviewedSnapshot` identifying:
+No raw chain-of-thought is shown, and nothing is presented as the model's private reasoning.
 
-- Cairn record and evidence references.
-- Accepted evidence versions or event positions.
-- Source document hashes.
-- Relevant policy versions.
-- Investigation and execution references.
-- Snapshot generation time.
+## 15. Evaluation and Testing [New IGI]
 
-The snapshot is immutable.
+### 15.1 Purpose
 
-If acceptance state or authoritative evidence subsequently changes, the existing pack is not silently rewritten. A new pack version must be generated or the old one clearly marked superseded.
+Show that the agent investigates unfamiliar data rather than following a hard-coded sequence of expected anomalies.
 
-### 12.3 Committee pack content
+### 15.2 Scenarios and answer-key isolation
 
-Produce an HTML/PDF pre-meeting pack containing:
+A scenario generator produces datasets from a seed and a set of planted issue types. Each scenario has an independent answer key.
 
-**Executive overview**
+Scenarios include:
 
-- Review period and portfolios covered.
-- Data coverage and validation status.
-- Number and type of proposed exceptions.
-- Areas requiring committee attention.
+- genuine policy exceptions;
+- subtle problems needing joins or calculations across sources;
+- disagreements between reports;
+- stale or missing information;
+- unresolved historical committee actions;
+- policy documents that disagree with their structured rules;
+- legitimate anomalies that are not breaches;
+- clean portfolios with no material exceptions.
 
-**Portfolio overview**
+**Development scenarios** are used freely while building. **Holdout scenarios** are kept separate:
 
-- Relevant portfolio and allocation figures.
-- Changes between periods.
-- Charts derived from reviewed information.
+- generated with seeds and issue combinations not used in development;
+- including at least one issue type absent from the development set, written after the freeze by someone (or a separate agent session) without access to the prompts and tools;
+- run only after the prompts, tools and business rules are frozen at a tagged commit.
 
-**Material findings**
+Prompts, tools and business rules are never tuned against holdout results. After the freeze only crash and infrastructure fixes are allowed, and any re-run is disclosed.
 
-- Description of the potential issue.
-- Applicable governance policy.
-- Supporting calculations and comparisons.
-- Explanation and uncertainties.
-- Evidence references.
-- Proposed points for committee discussion.
+Isolation is enforced by construction, not just by rule:
 
-**Outstanding governance items**
+- Spark's tools read only the review's imported `SourceDocument` rows;
+- answer keys live under `eval/` and are never imported or readable by the server;
+- Monty has no filesystem or network;
+- scenario file names, sheet names and descriptions are neutral and reveal nothing about planted issues;
+- prompts, tool descriptions and data descriptions contain no expected findings.
 
-- Missing data or unresolved investigations.
-- Previous committee actions still open.
-- Matters requiring human judgement.
+### 15.3 Metrics
 
-**Appendix**
+- material issues found and missed;
+- incorrect or unsupported findings (false positives);
+- benign anomalies correctly explained;
+- missing information correctly recognised;
+- evidence citation accuracy;
+- numerical correctness and reproducibility of calculations;
+- model and tool cost, and execution time.
 
-- Data source register.
-- Analysis methods.
-- Calculation and investigation references.
-- Accepted evidence manifest.
-- Generation/version information.
+Each scenario runs several times. Every run records the model, prompt and tool versions.
 
-Do not automatically invent investment recommendations, market commentary or committee decisions.
+### 15.4 MVP targets
 
-The pack should be useful even if it contains no exceptions: clean results and validated coverage are valid outcomes.
-
-## 13. User Interface
-
-IGI's interface should be visually polished but narrowly scoped.
-
-### 13.1 Review dashboard
-
-Displays available reviews, reporting periods, analysis status, findings and committee-pack versions.
-
-### 13.2 Source workspace
-
-Allows file upload and shows data source metadata, validation issues and reporting dates.
-
-### 13.3 Investigation workspace
-
-This is the application's distinctive interface.
-
-Show a chronological investigation trace, including:
-
-- Questions the agent chose to investigate.
-- Data and tools accessed.
-- Python generated.
-- Execution results.
-- Follow-up investigations.
-- Proposed findings and unresolved questions.
-
-Show observable actions and recorded analytical artifacts, not claims about inaccessible private model reasoning.
-
-Make the exploration comprehensible without requiring the user to read every line of code.
-
-### 13.4 Findings workspace
-
-Shows each proposed finding, classification, numerical evidence, supporting references and current submission status.
-
-Link to the relevant Cairn record for human evidence acceptance.
-
-Do not duplicate Cairn's acceptance controls.
-
-### 13.5 Committee pack workspace
-
-Displays the accepted evidence snapshot, report preview, PDF export and pack history.
-
-Publishing controls must respect the authoritative review-state checks.
-
-## 14. Evaluation and Testing
-
-### 14.1 Purpose
-
-Demonstrate that the agent can investigate unfamiliar data rather than follow a hard-coded sequence of expected anomalies.
-
-### 14.2 Evaluation approach
-
-Maintain an independent answer key for each test scenario.
-
-Measure:
-
-- True material issues discovered.
-- Material issues missed.
-- Incorrect or unsupported findings.
-- Correct identification of benign anomalies.
-- Evidence citation accuracy.
-- Numerical correctness.
-- Reproducibility of calculations.
-- Model/tool cost and execution time.
-- Ability to recognise missing information.
-
-Run evaluations repeatedly, recording the model and prompt versions, with more than one synthetic scenario.
-
-### 14.3 Initial success targets
-
-Proposed MVP targets:
-
-- Detect at least 80% of known material test exceptions across the primary blind fixture.
-- Produce no unsupported confirmed breach assertions.
-- Provide traceable source evidence for every material finding.
-- Independently validate all material numerical outputs.
-- Correctly identify at least one deliberately misleading, non-breaching anomaly.
-- Complete an analysis without receiving the hidden answer key.
-- Preserve code and inputs required to reproduce significant calculations.
+- Find at least 80% of known material exceptions across the holdout scenarios.
+- No unsupported confirmed breach assertions.
+- Traceable source evidence for every material finding.
+- Independent validation of every material number.
+- Correctly explain at least one deliberately misleading, non-breaching anomaly.
+- Complete analyses with no access to answer keys.
+- Preserve the code and inputs needed to reproduce significant calculations.
 
 These are development targets, not claims about production reliability.
 
-### 14.4 Automated tests
+### 15.5 Cairn in evaluation
 
-Include tests for:
+Repeated evaluations use the Cairn test double (§12.6). They create no Cairn records or candidates.
 
-- Source parsing and schema validation.
-- Financial calculations and decimal handling.
-- Incorrect dates, units and missing values.
-- Monty resource limits and restricted host functions.
-- Tool input validation and access boundaries.
-- Agent response parsing and error recovery.
-- Duplicate and uncertain Cairn submissions.
-- Record-start retry behaviour.
-- Evidence acceptance and rejection handling.
-- Snapshot versioning and invalidation.
-- Pack generation from accepted-only evidence.
-- Missing or unavailable Cairn read-back.
-- End-to-end execution using synthetic data.
+Real Cairn is used for:
 
-Treat source document text as untrusted data. Test prompt-injection attempts embedded in documents and spreadsheet cells.
+- the Gate A milestone (§17.1);
+- one or two end-to-end IGI runs before the demo;
+- the demo itself.
 
-## 15. Security and Operational Requirements
+### 15.6 Automated tests
 
-For the hackathon, use entirely synthetic data.
+- source parsing and schema validation;
+- financial calculations and decimal handling, including JavaScript-to-Monty value transfer;
+- wrong dates, units and missing values;
+- policy document and structured rule disagreement;
+- Monty resource limits, unsupported-construct errors returned to Spark, and restricted host functions;
+- tool input validation and review scoping;
+- agent response parsing and error recovery;
+- prompt injection embedded in documents and spreadsheet cells;
+- submission ledger: refused, uncertain and duplicate submissions; no automatic retry of uncertain ones;
+- record-start retry behaviour;
+- status mapping for unfiled, filed and active, voided, discarded, unverifiable and missing candidates;
+- snapshot eligibility, immutability and stale marking;
+- pack generation from eligible evidence only;
+- behaviour when Cairn or the status operation is unavailable;
+- one end-to-end run against the test double.
 
-Keep credentials and model API keys server-side.
+## 16. Security and Operations [New IGI]
 
-The vertical must not give Monty or Spark unrestricted credentials to Supabase or Cairn.
+- Entirely synthetic data. No real financial data, customer information or platform credentials in the repository, fixtures, logs or demo.
+- The Meta API key and the Cairn agent key live only in the backend's environment. Spark and Monty receive neither.
+- Agent tools are allowlisted, scoped to the current review and read-only, apart from writing notes and findings to IGI's own trace.
+- Source document text is untrusted data, never instructions.
+- Execution logs and source hashes are kept; secrets and unnecessary document content are not logged.
+- One fictional firm. Multi-tenant isolation is [Post-hackathon] and must be designed before any real customer data.
+- Production use would need further work on client-data handling, model-provider terms, retention, security review, regulatory responsibility and incident response. The prototype does not claim to have solved these.
 
-Agent-accessible tools should be allowlisted, scoped and read-only unless a specific write operation is required.
+## 17. Delivery Plan
 
-Apply tenant and review boundaries to all data access even if the initial demo has one fictional customer.
+### 17.1 Two gates first
 
-Persist execution logs and source hashes, but avoid logging secrets or unnecessary document content.
+The two highest-risk requirements are proven before anything else gets substantial time. No UI polish before both pass.
 
-Instrument the workflow with OpenTelemetry where practical, using correlation identifiers across model calls, data operations, code execution and Cairn submission.
+**Gate A: Cairn candidate-status read-back [Cairn extension]**
 
-Do not expose raw chain-of-thought or claim that the visible investigation trace is the model's complete internal reasoning.
+Passed when the extension is merged in Cairn, deployed to the demo environment, and this milestone passes against that deployment:
 
-A production version will need further consideration of client-data handling, model-provider contracts, retention, security review, regulatory responsibility and incident response. Those concerns must not be represented as already solved by the prototype.
+1. An authenticated agent submits an assertion.
+2. Querying it reports `unfiled`.
+3. A person files it in Cairn.
+4. Querying it reports `filed`, with the evidence reference Cairn shows for it.
+5. Steps 1–2 are repeated, a person discards the candidate, and querying reports `discarded`.
+6. A person voids the evidence from step 3, and querying reports it `voided`.
 
-## 16. Development Plan
+Only once Gate A passes does IGI rely on the read-back for committee-pack publication.
 
-**Day 1 — Architecture and feasibility**
+**Gate B: autonomous Spark and Monty investigation [New IGI]**
 
-- Create the public repository.
-- Verify Meta Model API tool calling from TypeScript.
-- Verify native Monty execution and deployment requirements.
-- Inspect Cairn's existing intake and authorised read contracts.
-- Create the simplest vertical-to-Cairn integration test.
+Passed when, on a development scenario whose planted issues appear nowhere in the prompts or tools, Spark:
 
-**Day 2 — Synthetic data and evaluation**
+- explores the sources and chooses its own analyses;
+- runs Python in Monty several times, including a follow-up prompted by an earlier result;
+- proposes at least one correct, non-obvious finding that needs a cross-source join or calculation, with cited sources and independent validation;
+- explains at least one benign anomaly without calling it a breach;
+- makes no unsupported breach claim;
 
-- Create the fictional firm and portfolio fixtures.
-- Implement data parsing and validation.
-- Create the independent anomaly answer key and evaluator.
+and does it again on a second variation of the scenario.
 
-**Days 3–4 — Autonomous investigation**
+**Contingency.** If Gate A is not passed by the end of 29 October, IGI continues to submission and status display against the test double, and a pack generated against real Cairn is a draft labelled "not verified against Cairn". It never claims acceptance. The demo shows only what works. Scope is cut from stretch goals and UI, not from the gates.
 
-- Build the Spark tool loop.
-- Implement Monty execution and safe data access.
-- Persist investigations and execution artifacts.
-- Evaluate discovery on the synthetic scenarios.
+### 17.2 Schedule
 
-**Days 5–6 — Cairn integration**
+| Date | Work |
+|---|---|
+| Tue 27 Oct | Settle this specification and the read-back contract. Record the Cairn founder decision and guardrail amendment in the Cairn repository. Make a real Meta Model API tool-calling request from the UK. Install Monty and run a smoke test on Windows and on the deployment target. Choose the Cairn demo environment. |
+| Wed 28 – Thu 29 Oct | **Gate A** in a Cairn session: implement, test, deploy, run the milestone. **Gate B** in IGI: the first development scenario and importer, the agent loop, the seven tools, the Monty adapter; prove a non-obvious finding twice. |
+| Fri 30 – Sat 31 Oct | Minimum end-to-end IGI: persistence, trace, findings, record start, submission ledger, status polling, snapshot, HTML pack. One real end-to-end run against Cairn. Deploy. |
+| Sun 1 – Mon 2 Nov | Evaluation harness, scenario variations and test double. Fixes against development scenarios only. Investigation trace UI. Prompt-injection tests. |
+| Tue 3 Nov | Freeze at a tagged commit. Write and generate holdout scenarios. Run the holdout evaluation several times and record the results as they come out. |
+| Wed 4 Nov | Demo video, README and disclosure, check the public repository and deployed demo. Submit by 18:00 GMT, well before the 02:00 GMT (5 Nov) deadline. |
 
-- Configure the governance subject and procedure.
-- Initiate records and submit candidate evidence.
-- Verify placement, attribution and human acceptance.
-- Resolve the authoritative read-back route.
+Stretch goals start only if every MVP item in §19 is done.
 
-**Day 7 — Committee pack**
+### 17.3 Implementation plan
 
-- Build accepted evidence snapshots.
-- Generate the pre-meeting report and charts.
-- Submit the pack back to Cairn where appropriate.
+**1. Read-back API contract.** As in §12.5: one batched, read-only intake route and its MCP equivalent, reporting candidate lifecycle and evidence state for the calling agent's own candidates.
 
-**Day 8 — Evaluation and reliability**
+**2. Cairn changes, decision record and security tests.** All in the Cairn repository, under its rules:
 
-- Run blind evaluation variants.
-- Fix missed exceptions and false positives.
-- Test failure handling, retries and reproducibility.
+- a dated founder decision record for the extension, and amendments to the guardrails' external-surface and candidate-intake sections and their revision log;
+- recording, at the moment a candidate is filed, which evidence item it became. Cairn does not store this link today, and deriving it from step, agent and content is ambiguous in exactly the duplicate-submission case IGI needs to handle. Filings made before the change stay unlinked;
+- one read-only command behind the HTTP route and the MCP tool, audited like the existing lookups;
+- the intake reference updated, including its list of what intake will not do;
+- the API contract, generated client types, API test pack and knowledge wiki updated under Cairn's contract-change process;
+- tests: the six milestone steps; another agent's candidate, another workspace's candidate, an in-app Tray item and a nonexistent id all left out identically; a restricted record and an unlinked filing both reporting `evidence: null`; record details withheld from agents without "Look up records"; revoked key and disabled intake refused; malformed and oversized requests refused; an audit entry for every request; rate-limit accounting; no user or content fields in any response; MCP and HTTP parity; tenant row-level security.
 
-**Day 9 — Demonstration and submission**
+The detailed Cairn design is kept with Cairn's private documentation.
 
-- Finalise the UI, README and architecture documentation.
-- Record the required three-minute video.
-- Verify the public repository and deployed demo.
-- Submit before 4 November 2026, 9:00 pm US Eastern Time.
+**3. How IGI consumes it.**
 
-Start with a vertical slice that proves Spark can investigate, Monty can execute and Cairn can receive evidence. Do not defer that integration until the final days.
+- The Cairn client exposes `findSubject`, `listStartableProcedures`, `startRecord`, `findRecords`, `getRecordSteps`, `submitAssertion`, `submitFile` and `getCandidateStatus(ids)`, each mapping Cairn's problem codes to typed errors.
+- The ledger (§12.4) records every attempt; the poller (§12.5) updates Cairn status; the snapshot builder applies the eligibility rule; the pack view re-checks and marks stale.
+- The test double (§12.6) implements the same client contract, so the evaluation harness and tests never need Cairn.
 
-## 17. Three-Minute Hackathon Demo
+**4. Autonomous Spark and Monty proof of concept.** A command-line run in the server package: import the first development scenario, run the agent loop with the seven tools and Monty, and write the trace to the database and to a JSON file. Gate B's criteria are the acceptance test. No UI and no Cairn.
 
-The video should communicate the product's value and the novel capability clearly.
+**5. Shortest route to a complete demo.** Once both gates pass:
 
-**0:00–0:20 — The problem**
+1. Persist and render the trace the proof of concept already produces (Investigation tab).
+2. Findings tab: list findings, submit through the ledger, show polled status.
+3. Snapshot and HTML pack from eligible evidence; print to PDF.
+4. Sources tab with upload and validation.
+5. Evaluation harness on the test double; then the holdout run.
+6. Deploy, record the demo, submit.
 
-Introduce a fictional investment manager preparing its monthly committee meeting. Explain the fragmented information and manual analytical effort.
+## 18. Three-Minute Demo
 
-**0:20–0:40 — The input**
+**0:00–0:20, the problem.** A fictional investment manager preparing its monthly committee: fragmented information and manual analysis.
 
-Show the supplied portfolio data, policies and prior committee information. Emphasise that the agent has not been told what issues exist.
+**0:20–0:40, the input.** The portfolio data, policies (document and structured rules) and prior committee actions. The agent has not been told what is wrong.
 
-**0:40–1:35 — Autonomous investigation**
+**0:40–1:35, autonomous investigation.** Start Spark. Show real tool calls, Python generated and run in Monty, a follow-up investigation triggered by an earlier result, the discovery of a non-obvious exception and a benign anomaly explained away.
 
-Start Spark. Show meaningful tool use, generated Python, Monty execution and the discovery of a non-obvious exception.
+**1:35–2:05, evidence and human review.** IGI's backend submits the finding and its investigation package to the Cairn record. A person files it in Cairn. IGI's status flips to filed and active through the read-back. The distinction between the agent producing evidence and a person accepting it is explained.
 
-Include a follow-up investigation rather than merely displaying a single predefined calculation.
+**2:05–2:35, the committee pack.** The pack built from the verified snapshot: the finding, references, calculations and open questions. Optionally, void the evidence in Cairn and show the pack marked stale.
 
-**1:35–2:05 — Evidence and human review**
+**2:35–3:00, significance.** Meta for intelligence, Monty for executable investigation, Cairn for accountability. Existing Cairn, the new Cairn extension and new IGI are identified. A specialist application built quickly on an existing evidence platform: a repeatable forward-deployed delivery model.
 
-Show the investigation package submitted to a Cairn record and a human accepting the candidate evidence.
+The demo shows only working functionality. If Gate A is not passed, it does not show verified acceptance.
 
-Explain the distinction between an agent producing evidence and a human accepting it.
+## 19. Definition of Done [MVP]
 
-**2:05–2:35 — Finished committee pack**
+- [ ] A review can be created and loaded with a realistic synthetic dataset.
+- [ ] Spark investigates without access to expected findings.
+- [ ] Spark writes and runs useful Python through Monty, and corrects its own code after errors.
+- [ ] Code, inputs, outputs and source provenance are recorded.
+- [ ] Spark finds meaningful exceptions and correctly handles at least one false alarm.
+- [ ] Every material number is independently validated.
+- [ ] Policy documents and structured rules are both used, and disagreement is flagged.
+- [ ] The backend starts a Cairn record and submits evidence to appropriate steps, with a ledger that handles uncertain outcomes.
+- [ ] A person accepts submitted evidence in Cairn.
+- [ ] IGI verifies acceptance through the Cairn candidate-status operation (Gate A).
+- [ ] The committee pack is generated from a fixed snapshot of verified, accepted, active evidence, and becomes stale if that changes.
+- [ ] The evaluation suite measures discovery quality and numerical correctness on frozen holdout scenarios.
+- [ ] The IGI source is public, with the Cairn dependency and the new Cairn extension disclosed.
+- [ ] The demo video shows only working functionality.
 
-Show the report produced from the accepted evidence snapshot, including the material finding, references, calculations and outstanding questions.
+Where a required integration is not available, the limitation is documented and completed work is kept distinct from future work.
 
-**2:35–3:00 — Technical and commercial significance**
+## 20. Post-Hackathon Direction [Post-hackathon]
 
-Show the architectural separation: Meta for intelligence, Monty for executable investigation and Cairn for accountability.
+IGI is Cairn River's first demonstrable forward-deployed solution, not necessarily its first commercial product.
 
-Explain that the specialist application was developed independently on an existing evidence platform and illustrates a repeatable FDE delivery model.
+Afterwards, assess:
 
-If the read-back integration remains unresolved, the demo must not fake the accepted-evidence publishing step. Demonstrate only what actually works.
+- whether small discretionary managers recognise the problem and its cost;
+- whether IGI meaningfully reduces preparation time;
+- what integrations real firms would need;
+- whether Cairn's APIs and evidence model are sufficient, and which further platform capabilities would be reused across engagements;
+- whether this becomes a packaged product or stays a client-specific offering.
 
-## 18. Definition of Done
+Cairn is extended only for real, generic needs, as with the candidate-status read-back, never for a hypothetical one. Solutions may run in Cairn River's infrastructure or a customer's.
 
-The hackathon MVP is complete when:
+## 21. Engineering Guidance
 
-- [ ] A review can be created using a realistic synthetic investment dataset.
-- [ ] Spark independently investigates data without access to expected findings.
-- [ ] Spark generates and executes useful analytical Python through Monty.
-- [ ] The application records code, inputs, outputs and source provenance.
-- [ ] It identifies meaningful exceptions and handles at least one false alarm.
-- [ ] Findings are linked to independently verifiable evidence.
-- [ ] The agent can initiate a Cairn record and submit evidence to appropriate steps.
-- [ ] An authorised person can review and accept submitted evidence in Cairn.
-- [ ] The vertical can verify which evidence was accepted before publication.
-- [ ] A committee pack is generated from a fixed accepted-evidence snapshot.
-- [ ] The evaluation suite measures discovery quality and numerical correctness.
-- [ ] The new vertical source is publicly available.
-- [ ] The three-minute demonstration accurately represents working functionality.
+This specification defines product intent, boundaries and outcomes. Before implementing, verify current code, API contracts, SDK versions and deployment capabilities.
 
-Where a required integration is not available, document that limitation and distinguish completed functionality from future work.
+1. Validate Meta Model API tool calling and structured output with a real request from the UK.
+2. Validate Monty's supported subset, limits and installation with the installed version.
+3. Build to Cairn's documented intake contract (§12.1) and, once Gate A passes, the status extension (§12.5).
+4. Prefer tested calculations over model-generated numbers.
+5. One agent and one working end-to-end flow first.
+6. No Cairn changes from this repository. Cairn changes follow Cairn's own process.
+7. Keep new IGI functionality identifiable in the public repository.
 
-## 19. Post-Hackathon Direction
+### Public references
 
-This application is intended to serve as Cairn River's first demonstrable FDE-style solution, not necessarily its first commercial product.
-
-After the event, assess:
-
-- Whether small DFMs recognise the problem and its cost.
-- Whether the application meaningfully reduces analyst preparation time.
-- What integrations real firms would require.
-- Whether Cairn's current APIs and evidence model are sufficient.
-- Which additional platform capabilities would be reusable across other customer engagements.
-- Whether the solution should become a packaged product or remain a client-specific offering.
-
-Do not expand Cairn simply to satisfy a hypothetical future requirement.
-
-The longer-term objective is to improve the platform through real customer needs while retaining flexibility to deploy specialised solutions within either Cairn River's infrastructure or a customer's environment.
-
-## 20. Engineering Guidance
-
-This specification defines product intent, system boundaries and expected outcomes.
-
-Before implementation, verify current code, API contracts, SDK versions and deployment capabilities.
-
-In particular:
-
-1. Inspect Cairn's actual intake, authentication, evidence and read-back behaviour.
-2. Validate Monty's supported Python subset and execution limits with the installed version.
-3. Validate Meta Model API's current tool-calling and structured-output interfaces.
-4. Prefer tested financial calculations over assumptions generated by the model.
-5. Start with one agent and one functioning end-to-end workflow.
-6. Implement no speculative Cairn platform changes.
-7. Make all newly built, demonstrated functionality identifiable in the public repository, consistent with the hackathon rules.
-
-### Key references
-
-- [Cairn Candidate Intake Reference](https://github.com/spenceclark/Cairn/blob/main/docs/candidate-intake.md)
-- [Cairn Product Direction and Guardrails](https://github.com/spenceclark/Cairn/blob/main/docs/product-guardrails.md)
 - [Meta Model API documentation](https://dev.meta.ai/docs/overview)
-- [Monty JavaScript Quickstart](https://pydantic.dev/docs/monty/quickstart/javascript/)
-- [Monty Security Model](https://pydantic.dev/docs/monty/concepts/security/)
-- [Monty Limitations](https://pydantic.dev/docs/monty/limitations/)
+- [Monty JavaScript quickstart](https://pydantic.dev/docs/monty/quickstart/javascript/)
+- [Monty security model](https://pydantic.dev/docs/monty/concepts/security/)
+- [Monty limitations](https://pydantic.dev/docs/monty/limitations/)
+
+Cairn's documentation is private. §12 summarises the parts of its contract IGI depends on.
 
 ---
 
 **Fundamental product principle**
 
-*The application does not know the answer before beginning an investigation. It supplies an intelligent agent with trustworthy data, controlled analytical capabilities and a clear objective. The agent discovers and substantiates findings. Cairn ensures the resulting work is subject to human accountability.*
+*The application does not know the answer before an investigation begins. It gives an intelligent agent trustworthy data, controlled analytical capabilities and a clear objective. The agent discovers and substantiates findings. Cairn makes the resulting work subject to human accountability.*
 
 **Fundamental business principle**
 
-*The vertical demonstrates the capability of Cairn River to deliver a specialised AI solution rapidly by building on an existing, reusable platform — without forcing industry-specific complexity into that platform.*
+*IGI shows that Cairn River can deliver a specialised AI solution quickly on an existing, reusable platform, improving that platform only where a real, generic need appears.*
+
+---
+
+## Revision Log
+
+**v0.3, 27 October 2026**
+
+- Recorded the Monty smoke test (§9): `decimal` needs Monty 1.4.0, now pinned; limit names and behaviour confirmed; isolation confirmed; Linux needs glibc 2.38 or later, so deployment uses a trixie or Ubuntu 24.04 container.
+- Ran the Meta Model API probe from the UK: tool calling works on both Chat Completions and the Responses API (§10.1).
+- Chose the Responses API, stateless, with encrypted reasoning replayed within a run and held in memory only (§10.1, §8.5).
+
+**v0.2, 27 October 2026**
+
+- Authorised a Cairn candidate-status read-back extension and specified its contract (§12.5) instead of treating acceptance read-back as unresolved. The contract was approved as the API boundary the same day.
+- Moved all Cairn operations from the agent to the backend; Spark holds no Cairn tools or credentials.
+- Reduced fifteen proposed tools to seven.
+- Corrected Monty's supported subset and required explicit resource limits and decimal-string value transfer.
+- Required both human-readable and structured policies, with disagreement flagged.
+- Added the submission ledger rules, the snapshot eligibility rule and stale packs.
+- Separated development and holdout evaluation with a freeze, and mocked Cairn in evaluation.
+- Removed the non-existent Cairn "request further investigation" action.
+- Narrowed the UI to one review page with four tabs, and observability to structured logs.
+- Restructured the plan around Gates A and B, with the corrected deadline.
+- Recorded the hackathon entry (Startup track, Build for Your World theme) and disclosure rules; removed private links.
+
+**v0.1, 26 October 2026.** First draft.
