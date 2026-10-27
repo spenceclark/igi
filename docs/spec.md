@@ -1,5 +1,5 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.3
+## Product & Technical Specification — v0.4
 
 **Date:** 27 October 2026  
 **Status:** Draft. The specification and the Cairn API boundary are to be settled before implementation starts.  
@@ -301,6 +301,8 @@ The operator chooses which findings to submit. The backend, not Spark, submits e
 - an **assertion** stating the finding (plain text, at most 4,000 characters);
 - a **file** holding the investigation package: methodology, inputs and their hashes, executed code, outputs, check results, assumptions and uncertainties.
 
+**Both are required for a material finding.** The assertion and its supporting investigation-package file must each be confirmed as filed, active evidence in Cairn, for the same finding version. Accepting the assertion alone does not make the finding ready for publication.
+
 Each submission proposes a step and slot on the review's record. If the proposal doesn't fit, the candidate waits in the Tray unplaced. Every attempt is recorded in the submission ledger (§12.4).
 
 Submission is not acceptance.
@@ -313,11 +315,13 @@ Cairn has no "request further investigation" action. If the operator wants more 
 
 ### 6.7 Follow acceptance [Cairn extension, New IGI]
 
-IGI polls the candidate-status operation for candidates in its ledger and shows each finding's state: unfiled, filed and active, filed and voided, discarded, unverifiable, or uncertain. IGI shows status and links to Cairn. It offers no accept or reject controls.
+IGI polls the candidate-status operation for candidates in its ledger and shows each candidate's state: unfiled, filed and active, filed and voided, discarded, unverifiable, or uncertain. IGI also shows a finding-level **incomplete / publication-ready** indicator based on both required candidates (§12.5). IGI shows status and links to Cairn. It offers no accept or reject controls.
 
 ### 6.8 Generate the committee pack [New IGI]
 
-Immediately before generation, IGI makes a fresh status call and builds an immutable `ReviewedSnapshot` from the candidates Cairn confirms as filed with active evidence (§13.2). The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data.
+Immediately before generation, IGI makes a fresh status call and builds an immutable `ReviewedSnapshot` from **complete findings**: for each material finding, Cairn must confirm both its assertion and its investigation-package file as filed, active evidence for the same finding version (§13.2). The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data.
+
+If any submitted material finding has incomplete support (including pending, discarded, voided, unverifiable or uncertain candidates), IGI identifies what remains incomplete and **does not generate a final, review-ready committee pack**. It may show a clearly marked incomplete preview with no unaccepted finding presented as reviewed. A clean pack with no findings is valid only after a completed investigation has no unresolved material findings.
 
 If the verified evidence set later changes, the pack keeps its version and is marked stale; a newly generated pack supersedes it (§13.3).
 
@@ -516,11 +520,13 @@ Larger-scale processing or specialist libraries may later need a dedicated Pytho
 | Backend | One Node.js / TypeScript service: API, agent loop, Monty, Cairn client |
 | Model API | Meta Model API, OpenAI-compatible Responses API (`POST /v1/responses`), stateless with `store: false`, `muse-spark-1.3`, called with plain `fetch` or the OpenAI SDK pointed at Meta's base URL; no agent framework |
 | Sandbox | `@pydantic/monty` |
-| Database | Supabase PostgreSQL |
-| File storage | Supabase Storage |
+| Database | DigitalOcean Managed PostgreSQL — dedicated IGI logical database and database user on the existing Cairn Dev cluster for the hackathon |
+| File storage | DigitalOcean Spaces — separate private IGI bucket with scoped credentials |
 | Hosting | One DigitalOcean service that permits subprocesses, deployed as a container image with glibc 2.38 or later (§9.7) |
 | Operator access | A single operator login; no role system |
 | Observability | Structured JSON logs with correlation ids across model calls, tool calls, executions and Cairn requests; OpenTelemetry optional |
+
+**Development infrastructure boundary.** IGI reuses the existing DigitalOcean managed PostgreSQL cluster and Spaces subscription for the hackathon, but has its own logical database, restricted database user, and private bucket with scoped access credentials. It does not use Cairn's database, schema, tables, storage bucket or application credentials. Shared physical infrastructure saves cost but shares resource limits, operational risk and backup arrangements; monitor cluster capacity. A real customer deployment requires its own infrastructure, access controls, backup/restore plan and security/residency review, rather than inheriting the Cairn Dev resources. IGI remains independently deployable on another provider when needed.
 
 **Before substantial implementation, Meta Model API access is validated from the UK with a real tool-calling request to `muse-spark-1.3`**, recording latency, rate limits and cost.
 
@@ -633,6 +639,7 @@ For each submitted finding:
 
 - **Assertion:** the backend composes it from the structured finding: statement, classification, key figures with units, the policy rule and effective version, and IGI's finding and run ids. It fits within 4,000 characters of plain text.
 - **Investigation package file:** methodology, input references and hashes, executed code, outputs, check results, assumptions and uncertainties.
+- **Required pair:** both the assertion and investigation-package file are mandatory for a material finding to be publication-ready. Their candidate IDs are correlated by IGI finding ID and version in the submission ledger; no single item stands in for the other.
 - **Source reference:** short and readable by the people filing it, such as `IGI review 2026-10, finding F-07`.
 - **Placement:** the step and slot the backend maps the finding's classification to, using the ids from the review's record.
 
@@ -733,8 +740,9 @@ Polling is enough. No webhooks or subscriptions.
 #### How IGI uses it [New IGI]
 
 - One batched request per minute while any ledger entry is `unfiled`, a request when the operator refreshes, one immediately before building a snapshot, and one for a pack's snapshot candidates whenever that pack is opened. Well within the rate limit. Once nothing is unfiled, polling stops, so a later void is detected when the pack is next opened or refreshed, not continuously.
-- An entry is **snapshot-eligible** only when `status` is `filed`, `evidence` is present and `evidence.status` is `active`.
-- Unfiled, discarded, voided, unverifiable (`evidence: null`), uncertain and missing entries are never included in a snapshot.
+- A candidate entry is **snapshot-eligible** only when `status` is `filed`, `evidence` is present and `evidence.status` is `active`.
+- A **material finding is publication-ready** only when its assertion candidate **and** its investigation-package file candidate are both snapshot-eligible, linked to the same finding ID and version, and filed against the expected review record. Partially accepted findings are incomplete, not publishable conclusions.
+- Unfiled, discarded, voided, unverifiable (`evidence: null`), uncertain and missing entries are never included in a snapshot. One eligible candidate must never cause an incomplete material finding to appear in a reviewed pack.
 
 ### 12.6 Cairn test double [New IGI]
 
@@ -759,18 +767,18 @@ Cairn's filing is never presented as approval of a finding, a recommendation or 
 Built from a status read-back made immediately before generation. It records:
 
 - the Cairn record reference;
-- for each eligible candidate: candidate id, evidence reference, filing time, record, step and slot;
-- the IGI finding and version each candidate came from;
+- for each publication-ready material finding: its assertion candidate ID and evidence reference **and** its investigation-package file candidate ID and evidence reference, with filing times, records, steps and slots;
+- the IGI finding ID and version shared by the required pair;
 - source document hashes;
 - policy rule versions;
 - execution and check references;
 - the generation time and a hash of the snapshot.
 
-Only snapshot-eligible entries are included (§12.5). The snapshot is immutable.
+Only complete, publication-ready findings enter the reviewed snapshot (§12.5). If any submitted material finding has an incomplete pair, final pack generation is blocked and the review is marked incomplete; an incomplete preview, if shown, must be visibly labelled and must not present its conclusions as accepted. The snapshot is immutable.
 
 ### 13.3 Stale and superseded packs
 
-IGI re-checks a pack's snapshot whenever it polls and when the pack is opened. If any entry is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. It is never rewritten. A newly generated pack supersedes it, and both remain in the pack history.
+IGI re-checks **both constituent evidence items for every included finding** whenever it polls and when the pack is opened. If either is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. It is never rewritten. A newly generated pack supersedes it, and both remain in the pack history.
 
 ### 13.4 Pack content
 
@@ -786,7 +794,7 @@ An HTML pre-meeting pack, exported to PDF with the browser's print function:
 
 **Appendix:** data source register, analysis methods, calculation and investigation references, accepted evidence manifest, generation and version information.
 
-The pack never invents recommendations, market commentary or committee decisions. A pack with no exceptions is a valid result: clean findings and validated coverage are worth reporting.
+The material findings section contains only findings with both the accepted assertion and accepted investigation package; no unaccepted supporting calculation may be represented as reviewed. The pack never invents recommendations, market commentary or committee decisions. A pack with no exceptions is a valid result **only if the investigation completed with no unresolved material findings**: clean findings and validated coverage are worth reporting.
 
 ## 14. User Interface [New IGI]
 
@@ -796,7 +804,7 @@ Small and coherent. Visual polish comes after the gates in §17.1 are passed.
 - **Review page**, with four tabs:
   - **Sources:** upload, metadata, reporting dates, validation issues.
   - **Investigation** (the centrepiece): the chronological trace of real tool calls, data accessed, Python run, inputs, outputs, notes and findings, with follow-up investigations visible as such. Readable without reading every line of code: summaries first, code and data on expansion.
-  - **Findings:** each finding with classification, figures, citations, validation state, submission ledger state and Cairn status, and a link to the Cairn record. Buttons to submit to Cairn and to resolve uncertain submissions. No accept or reject controls.
+  - **Findings:** each finding with classification, figures, citations, validation state, separate assertion/file submission and Cairn statuses, overall completeness/publication readiness, and a link to the Cairn record. Buttons to submit to Cairn and to resolve uncertain submissions. No accept or reject controls.
   - **Pack:** the snapshot, preview, print to PDF, history, stale and superseded markers.
 
 No raw chain-of-thought is shown, and nothing is presented as the model's private reasoning.
@@ -886,7 +894,8 @@ Real Cairn is used for:
 - record-start retry behaviour;
 - status mapping for unfiled, filed and active, voided, discarded, unverifiable and missing candidates;
 - snapshot eligibility, immutability and stale marking;
-- pack generation from eligible evidence only;
+- pack generation from **complete assertion-plus-investigation-package pairs** only, including assertion accepted/file pending, file accepted/assertion discarded, voided support, mismatched finding versions and unverifiable evidence;
+- final-pack blocking and incomplete-preview labelling for partially accepted findings;
 - behaviour when Cairn or the status operation is unavailable;
 - one end-to-end run against the test double.
 
@@ -977,7 +986,7 @@ The detailed Cairn design is kept with Cairn's private documentation.
 
 1. Persist and render the trace the proof of concept already produces (Investigation tab).
 2. Findings tab: list findings, submit through the ledger, show polled status.
-3. Snapshot and HTML pack from eligible evidence; print to PDF.
+3. Snapshot and HTML pack from fully accepted assertion-plus-investigation-package pairs; print to PDF.
 4. Sources tab with upload and validation.
 5. Evaluation harness on the test double; then the holdout run.
 6. Deploy, record the demo, submit.
@@ -990,7 +999,7 @@ The detailed Cairn design is kept with Cairn's private documentation.
 
 **0:40–1:35, autonomous investigation.** Start Spark. Show real tool calls, Python generated and run in Monty, a follow-up investigation triggered by an earlier result, the discovery of a non-obvious exception and a benign anomaly explained away.
 
-**1:35–2:05, evidence and human review.** IGI's backend submits the finding and its investigation package to the Cairn record. A person files it in Cairn. IGI's status flips to filed and active through the read-back. The distinction between the agent producing evidence and a person accepting it is explained.
+**1:35–2:05, evidence and human review.** IGI's backend submits the finding assertion and its investigation package to the Cairn record. A person files **both** in Cairn. IGI marks the finding publication-ready only after the read-back confirms both accepted and active. The distinction between the agent producing evidence and a person accepting it is explained.
 
 **2:05–2:35, the committee pack.** The pack built from the verified snapshot: the finding, references, calculations and open questions. Optionally, void the evidence in Cairn and show the pack marked stale.
 
@@ -1009,8 +1018,9 @@ The demo shows only working functionality. If Gate A is not passed, it does not 
 - [ ] Policy documents and structured rules are both used, and disagreement is flagged.
 - [ ] The backend starts a Cairn record and submits evidence to appropriate steps, with a ledger that handles uncertain outcomes.
 - [ ] A person accepts submitted evidence in Cairn.
-- [ ] IGI verifies acceptance through the Cairn candidate-status operation (Gate A).
-- [ ] The committee pack is generated from a fixed snapshot of verified, accepted, active evidence, and becomes stale if that changes.
+- [ ] IGI verifies acceptance of **both** the assertion and the investigation-package file for each material finding through the Cairn candidate-status operation (Gate A).
+- [ ] Material findings are publication-ready only when both required evidence items are accepted and active for the same finding version; incomplete findings cannot silently enter the pack.
+- [ ] The committee pack is generated from a fixed snapshot of complete, verified findings, blocks final publication when submitted material findings are incomplete, and becomes stale if either accepted evidence item changes status.
 - [ ] The evaluation suite measures discovery quality and numerical correctness on frozen holdout scenarios.
 - [ ] The IGI source is public, with the Cairn dependency and the new Cairn extension disclosed.
 - [ ] The demo video shows only working functionality.
@@ -1065,6 +1075,11 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.4, 27 October 2026**
+
+- Switched the IGI development database and file storage to DigitalOcean Managed PostgreSQL and Spaces (§10.1), reusing the existing development subscription with logically separated database, credentials and bucket, while requiring independent production-client infrastructure.
+- Required both the finding assertion and its supporting investigation-package file to be accepted and active in Cairn before a material finding can enter the reviewed snapshot or final committee pack (§6, §12–15, §19); incomplete submissions block final pack generation, and voiding either item makes an existing pack stale.
 
 **v0.3, 27 October 2026**
 
