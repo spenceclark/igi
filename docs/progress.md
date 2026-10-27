@@ -50,9 +50,22 @@ Issues found and resolved during the build:
 - Checked from the Cairn code (read only): the route, field names, wire values, the 1–100 id limit, omission of unknown and others' ids, `evidence: null` for restricted or pre-extension filings, and record details only with "Look up records" all match spec §12.5. Two details added to §12.5: audit entries record counts only, and evidence on a later-cancelled record still reads `active`.
 - IGI has not yet called the deployed route itself: every `/api/intake` path returns `401` without a key. Its first call comes with the Cairn client (Fri 30 – Sat 31 Oct), using the "IGI" agent's key for Cairn Dev.
 
+**Spec v0.4** (`1816716`, written outside this session)
+
+- Database and file storage move from Supabase to DigitalOcean Managed PostgreSQL and Spaces: a separate IGI database, user and private bucket on the existing Cairn Dev subscription, never Cairn's own.
+- A submitted material finding is publication-ready only when both its assertion and its investigation-package file are filed and active for the same finding version; an incomplete pair blocks the final pack, and voiding either item makes a pack stale.
+- No impact on the Gate B code: the ledger, snapshot and pack are not built yet.
+
+**Spec v0.5**
+
+- Issues found in v0.4 and resolved: a finding the reviewer rejected in Cairn blocked the final pack permanently, nothing let the operator clear an abandoned or voided submission, "material finding" was undefined, and a "no exceptions" pack could omit potential exceptions the operator never submitted.
+- Resolved by: a material finding is any submitted finding; each finding version has a state (not submitted, pending, publication-ready, rejected, incomplete, withdrawn) with a precedence order (§6.7); a discarded assertion means rejected, excluded and counted; operator withdrawal in IGI with a mandatory reason; a pack with no findings needs every potential exception from the latest run rejected or withdrawn (§6.8).
+
 **Open**
 
 - Register the "IGI" agent in Cairn Dev (spec §12.2) and put its key in `server/.env` before the Cairn client is built.
+- Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`.
+- Choose the investigation-package file format by how it previews in Cairn (spec §12.2). Gate A tested an assertion only, and the file is now mandatory for publication.
 - Gate B observations for later: Spark sweeps every catalogue check across every portfolio before forming hypotheses, so the checks, not Python, do most of the discovery. The holdout therefore needs at least one issue type no catalogue check covers; the overdue-action findings show Spark can find those. Classifications for the notification trigger vary between runs (observation, outstanding action).
 - The leak scan is a throwaway script; make it part of the evaluation harness so it runs before every evaluation.
 - Cairn demo environment to confirm (default: Cairn Dev).
