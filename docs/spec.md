@@ -667,7 +667,7 @@ Record start follows Cairn's rules: always send a source reference; after an unc
 
 ### 12.5 Candidate-status read-back [Cairn extension]
 
-**Status:** authorised by founder decision on 27 October 2026, to be recorded in Cairn's decision log. The contract below, including its permission, omission and visibility rules, was approved as the API boundary on 27 October 2026. Not built. IGI codes against it as written; any change to a name, field or rule is a revision of this section, agreed before the Cairn change merges.
+**Status:** authorised by founder decision on 27 October 2026, to be recorded in Cairn's decision log. The contract below, including its permission, omission and visibility rules, was approved as the API boundary on 27 October 2026. Built in Cairn on 27 October 2026, with the decision record and guardrail amendment, and deployed to Cairn Dev, where the Gate A milestone (§17.1) passed the same day. Its route, field names, wire values (`unfiled`, `filed`, `discarded`, `active`, `voided`), limits and omission and visibility rules match this section as written. IGI codes against it as written; any change to a name, field or rule is a revision of this section, agreed with Cairn first.
 
 #### Operation
 
@@ -724,7 +724,8 @@ The four states the product needs map onto Cairn's model:
 - If the record holding the evidence is restricted to named people, the candidate reports `filed` with `evidence: null`. Candidates filed before the extension existed report the same. IGI treats both as unverifiable.
 - No evidence content, record names, comments, subject details, user ids or names, or void reasons are returned. An authorised person can see who filed or voided an item, and why, in Cairn from the evidence reference.
 - Nothing can be filed, discarded, voided or changed through it.
-- Every request is audited against the agent and key, like lookups. It counts against the 60-requests-per-10-minutes limit.
+- Every request is audited against the agent and key, like lookups, recording how many ids were asked about and how many were found, never the ids. A request refused as malformed is not audited. It counts against the 60-requests-per-10-minutes limit.
+- It reports the candidate and its evidence, not the record: evidence on a record cancelled later still reads `active`. IGI's review record is not expected to be cancelled; if it is, the operator rebuilds the pack on a new record.
 - Authentication, workspace switches, revocation and tenant isolation behave as on every other intake route.
 
 Polling is enough. No webhooks or subscriptions.
@@ -918,6 +919,8 @@ Passed when the extension is merged in Cairn, deployed to the demo environment, 
 
 Only once Gate A passes does IGI rely on the read-back for committee-pack publication.
 
+**Passed 27 October 2026** against Cairn Dev.
+
 **Gate B: autonomous Spark and Monty investigation [New IGI]**
 
 Passed when, on a development scenario whose planted issues appear nowhere in the prompts or tools, Spark:
@@ -930,7 +933,9 @@ Passed when, on a development scenario whose planted issues appear nowhere in th
 
 and does it again on a second variation of the scenario.
 
-**Contingency.** If Gate A is not passed by the end of 29 October, IGI continues to submission and status display against the test double, and a pack generated against real Cairn is a draft labelled "not verified against Cairn". It never claims acceptance. The demo shows only what works. Scope is cut from stretch goals and UI, not from the gates.
+**Passed 27 October 2026** on development scenarios `dev-01` and `dev-02`. On `dev-01`, Python ran twice in each of two runs, which is borderline for "several times". The results are in `docs/progress.md`.
+
+**Contingency** (not needed: Gate A passed). If Gate A is not passed by the end of 29 October, IGI continues to submission and status display against the test double, and a pack generated against real Cairn is a draft labelled "not verified against Cairn". It never claims acceptance. The demo shows only what works. Scope is cut from stretch goals and UI, not from the gates.
 
 ### 17.2 Schedule
 

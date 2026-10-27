@@ -43,9 +43,16 @@ Issues found and resolved during the build:
 - Monty passes Python keyword arguments to host functions as a trailing null-prototype object and dicts as `Map`; the adapter's `hostFunction` tells them apart.
 - Figure matching compares at the precision stated, so "37%" and "0.37" both validate 0.3697; "38%" does not.
 
+**Gate A: passed** (27 Oct, against Cairn Dev)
+
+- The six-step milestone passed against Cairn Dev, run on the Cairn side and confirmed here on 27 Oct. IGI may now rely on the read-back for committee-pack publication (spec §17.1); the contingency is not needed.
+- The candidate-status read-back is merged in Cairn (27 Oct), with the decision record and guardrail amendment, and deployed to Cairn Dev.
+- Checked from the Cairn code (read only): the route, field names, wire values, the 1–100 id limit, omission of unknown and others' ids, `evidence: null` for restricted or pre-extension filings, and record details only with "Look up records" all match spec §12.5. Two details added to §12.5: audit entries record counts only, and evidence on a later-cancelled record still reads `active`.
+- IGI has not yet called the deployed route itself: every `/api/intake` path returns `401` without a key. Its first call comes with the Cairn client (Fri 30 – Sat 31 Oct), using the "IGI" agent's key for Cairn Dev.
+
 **Open**
 
-- Gate A: under way in a separate Cairn-repository session.
+- Register the "IGI" agent in Cairn Dev (spec §12.2) and put its key in `server/.env` before the Cairn client is built.
 - Gate B observations for later: Spark sweeps every catalogue check across every portfolio before forming hypotheses, so the checks, not Python, do most of the discovery. The holdout therefore needs at least one issue type no catalogue check covers; the overdue-action findings show Spark can find those. Classifications for the notification trigger vary between runs (observation, outstanding action).
 - The leak scan is a throwaway script; make it part of the evaluation harness so it runs before every evaluation.
 - Cairn demo environment to confirm (default: Cairn Dev).
