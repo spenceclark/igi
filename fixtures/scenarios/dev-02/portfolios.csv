@@ -1,0 +1,4 @@
+portfolio_id,portfolio_name,objective,benchmark
+P-CAU,Cautious,Capital preservation with modest real growth,"Composite: 30% global equity, 60% sterling bonds, 10% cash"
+P-BAL,Balanced,Long-term growth with moderate volatility,"Composite: 55% global equity, 35% sterling bonds, 10% alternatives"
+P-GRO,Growth,Long-term capital growth,"Composite: 80% global equity, 15% sterling bonds, 5% alternatives"

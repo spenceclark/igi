@@ -70,3 +70,6 @@ ref/
 
 # Private notes (Cairn internals) - never publish
 docs/private/
+
+# Investigation run traces
+server/runs/

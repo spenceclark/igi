@@ -1,0 +1,14 @@
+rule_id,version,portfolio_id,metric,limit_type,threshold,basis,effective_from,effective_to,methodology,document_clause
+CAU-EQ-MAX,1,P-CAU,equity_exposure,max,0.3500,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",3.1
+CAU-SH,1,P-CAU,single_holding_weight,max,0.2500,direct,2026-01-01,,"Holding market value divided by total portfolio market value, at the period end.",3.2
+CAU-CASH,1,P-CAU,cash_exposure,max,0.1000,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",3.3
+BAL-EQ-MIN,1,P-BAL,equity_exposure,min,0.4000,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",4.1
+BAL-EQ-MAX,1,P-BAL,equity_exposure,max,0.6500,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",4.1
+BAL-SH,1,P-BAL,single_holding_weight,max,0.2500,direct,2026-01-01,2026-06-30,"Holding market value divided by total portfolio market value, at the period end.",4.2
+BAL-SH,2,P-BAL,single_holding_weight,max,0.2000,direct,2026-07-01,,"Holding market value divided by total portfolio market value, at the period end.",4.2
+BAL-CASH,1,P-BAL,cash_exposure,max,0.1000,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",4.3
+GRO-EQ-MIN,1,P-GRO,equity_exposure,min,0.6000,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",5.1
+GRO-EQ-MAX,1,P-GRO,equity_exposure,max,0.9000,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",5.1
+GRO-SH,1,P-GRO,single_holding_weight,max,0.3000,direct,2026-01-01,,"Holding market value divided by total portfolio market value, at the period end.",5.2
+GRO-CASH,1,P-GRO,cash_exposure,max,0.1000,look-through,2026-01-01,,"Sum over holdings of portfolio weight multiplied by the fund look-through exposure to the asset class, at the period end.",5.3
+ALL-REL,1,ALL,relative_return_deviation,max,0.0150,quarterly,2026-01-01,,Absolute difference between the portfolio's quarterly return and its benchmark's quarterly return.,6.1

@@ -966,7 +966,7 @@ The detailed Cairn design is kept with Cairn's private documentation.
 - The ledger (§12.4) records every attempt; the poller (§12.5) updates Cairn status; the snapshot builder applies the eligibility rule; the pack view re-checks and marks stale.
 - The test double (§12.6) implements the same client contract, so the evaluation harness and tests never need Cairn.
 
-**4. Autonomous Spark and Monty proof of concept.** A command-line run in the server package: import the first development scenario, run the agent loop with the seven tools and Monty, and write the trace to the database and to a JSON file. Gate B's criteria are the acceptance test. No UI and no Cairn.
+**4. Autonomous Spark and Monty proof of concept.** A command-line run in the server package (`scripts/investigate.ts`): import a development scenario, run the agent loop with the seven tools and Monty, and write the trace to a JSON file in `server/runs/`. The trace moves to the database with persistence (Fri 30 – Sat 31 Oct). Gate B's criteria are the acceptance test. No UI and no Cairn.
 
 **5. Shortest route to a complete demo.** Once both gates pass:
 

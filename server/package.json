@@ -7,7 +7,9 @@
   },
   "scripts": {
     "smoke:monty": "node scripts/monty-smoke.ts",
-    "probe:meta": "node --env-file-if-exists=.env scripts/meta-probe.ts"
+    "probe:meta": "node --env-file-if-exists=.env scripts/meta-probe.ts",
+    "test": "node --test test/core.test.ts",
+    "investigate": "node --env-file-if-exists=.env scripts/investigate.ts"
   },
   "dependencies": {
     "@pydantic/monty": "1.4.0"

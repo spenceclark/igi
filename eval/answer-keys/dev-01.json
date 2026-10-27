@@ -1,0 +1,110 @@
+{
+  "scenario": "dev-01",
+  "seed": 101,
+  "instrumentIds": {
+    "ZZ4RJNDOLY80": "Northgate UK Equity Index",
+    "ZZDSEVH32F11": "Harrow Global Equity",
+    "ZZR92N1L1FU4": "Mardale Emerging Markets Equity",
+    "ZZQXM255I0N1": "Calder Sterling Corporate Bond",
+    "ZZ61YF5RCR74": "Ashby Gilt Index",
+    "ZZX5ALYFDR48": "Ouse Short-Dated Bond",
+    "ZZMKGVD75CN6": "Wensley Multi-Asset Income",
+    "ZZ33R4QNL8L6": "Fenwick Strategic Multi-Asset",
+    "ZZPT6VUMMK73": "Tarn Property Securities",
+    "ZZI6JYTJ56O9": "Brackley Absolute Return",
+    "ZZ2DNH3U3WL8": "Kentmere Global Equity Income",
+    "ZZFEJAI3FPG5": "Sterling Cash"
+  },
+  "expectedBreaches": [
+    "P-CAU|2026-09-30|CAU-EQ-MAX",
+    "P-BAL|2026-09-30|BAL-SH"
+  ],
+  "facts": {
+    "P-CAU|2026-06-30|equity_exposure": "0.3359",
+    "P-CAU|2026-06-30|cash_exposure": "0.0857",
+    "P-CAU|2026-06-30|single_holding_weight": "0.1730",
+    "P-CAU|2026-06-30|relative_return_deviation": "0.0010",
+    "P-CAU|2026-09-30|equity_exposure": "0.3697",
+    "P-CAU|2026-09-30|cash_exposure": "0.0791",
+    "P-CAU|2026-09-30|single_holding_weight": "0.2300",
+    "P-CAU|2026-09-30|relative_return_deviation": "0.0030",
+    "P-BAL|2026-06-30|equity_exposure": "0.4908",
+    "P-BAL|2026-06-30|cash_exposure": "0.0678",
+    "P-BAL|2026-06-30|single_holding_weight": "0.2150",
+    "P-BAL|2026-06-30|relative_return_deviation": "0.0020",
+    "P-BAL|2026-09-30|equity_exposure": "0.5005",
+    "P-BAL|2026-09-30|cash_exposure": "0.0673",
+    "P-BAL|2026-09-30|single_holding_weight": "0.2250",
+    "P-BAL|2026-09-30|relative_return_deviation": "0.0040",
+    "P-GRO|2026-06-30|equity_exposure": "0.7414",
+    "P-GRO|2026-06-30|cash_exposure": "0.0833",
+    "P-GRO|2026-06-30|single_holding_weight": "0.2600",
+    "P-GRO|2026-06-30|relative_return_deviation": "0.0030",
+    "P-GRO|2026-09-30|equity_exposure": "0.7316",
+    "P-GRO|2026-09-30|cash_exposure": "0.0883",
+    "P-GRO|2026-09-30|single_holding_weight": "0.2550",
+    "P-GRO|2026-09-30|relative_return_deviation": "0.0050"
+  },
+  "issues": [
+    {
+      "id": "I1",
+      "type": "lookthrough_equity_breach",
+      "portfolio": "P-CAU",
+      "period": "2026-09-30",
+      "rule": "CAU-EQ-MAX v1",
+      "expected": [
+        "potential_exception"
+      ],
+      "summary": "Look-through equity exposure exceeds 35% although only 16% is held in funds classified as equity; the multi-asset funds carry the rest."
+    },
+    {
+      "id": "I2",
+      "type": "limit_breach_after_policy_change",
+      "portfolio": "P-BAL",
+      "period": "2026-09-30",
+      "rule": "BAL-SH v2",
+      "expected": [
+        "potential_exception"
+      ],
+      "summary": "Largest holding (Harrow Global Equity) exceeds the 20% single-holding limit in force from 1 July 2026; it was within the previous 25% limit."
+    },
+    {
+      "id": "I3",
+      "type": "overdue_committee_action",
+      "portfolio": "P-CAU",
+      "period": "2026-09-30",
+      "expected": [
+        "outstanding_action",
+        "potential_exception",
+        "observation"
+      ],
+      "summary": "Action to replace Fenwick Strategic Multi-Asset was due 30 September 2026 and is still in progress; the fund is still held, at a larger weight, and is the highest-cost fund in the portfolio."
+    }
+  ],
+  "benign": [
+    {
+      "id": "B1",
+      "type": "market_driven_fall",
+      "portfolio": "P-GRO",
+      "period": "2026-09-30",
+      "must_not_be": [
+        "potential_exception"
+      ],
+      "summary": "Growth returned -8.7% in Q3, below the -5% notification level, but its benchmark returned -8.2%: within the 1.5pp tolerance and market-driven. Notify the Committee; not a breach."
+    }
+  ],
+  "distractors": [
+    {
+      "id": "D1",
+      "summary": "Tarn Property Securities reduction in Balanced is complete and consistent with Q3 holdings (5.5%)."
+    },
+    {
+      "id": "D2",
+      "summary": "Fee review action is not yet due."
+    },
+    {
+      "id": "D3",
+      "summary": "Tarn Property Securities ongoing charge rose from 0.40% to 0.42%; no policy limit applies."
+    }
+  ]
+}
