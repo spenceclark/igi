@@ -61,6 +61,28 @@ Issues found and resolved during the build:
 - Issues found in v0.4 and resolved: a finding the reviewer rejected in Cairn blocked the final pack permanently, nothing let the operator clear an abandoned or voided submission, "material finding" was undefined, and a "no exceptions" pack could omit potential exceptions the operator never submitted.
 - Resolved by: a material finding is any submitted finding; each finding version has a state (not submitted, pending, publication-ready, rejected, incomplete, withdrawn) with a precedence order (§6.7); a discarded assertion means rejected, excluded and counted; operator withdrawal in IGI with a mandatory reason; a pack with no findings needs every potential exception from the latest run rejected or withdrawn (§6.8).
 
+**Spec v0.6** (`b220fd0`, written outside this session)
+
+- Adds cross-review memory as the first priority stretch: logical agent definitions, run, review, handover and agent memory scopes, human-confirmed operational knowledge, clarifications that start a new run, and IGI-owned generated files. Cairn platform ideas are recorded as post-hackathon candidates only.
+
+**Spec v0.7**
+
+- Issues found in v0.6 and resolved:
+  - a generic `RunArtifact` index and agent and company ids had entered the MVP;
+  - with one company and one agent definition, knowledge approved in a demo review would have been supplied to holdout runs;
+  - the memory text in §1–2 was not labelled stretch;
+  - one open question ended the whole run;
+  - the handover's derivation and "relevance" were undefined, and nothing said where remembered knowledge enters the prompt;
+  - giving Spark last month's pack invited stale values;
+  - the continuity fixture needed source data the generator does not have;
+  - the public spec named a private Cairn component.
+- Resolved by:
+  - MVP files are referenced from the rows that already own them, and the index moved to the stretch;
+  - evaluation runs use an empty knowledge store, and the freeze records whether the memory tools are on;
+  - open questions use the existing `open_question` note kind while the run continues;
+  - the handover is derived in code, and knowledge goes in a delimited data block, never in `instructions`;
+  - the priority slice is narrowed to one clarification, `propose_knowledge` and the October-to-November reuse, using a `source` column on look-through rows.
+
 **Open**
 
 - Register the "IGI" agent in Cairn Dev (spec §12.2) and put its key in `server/.env` before the Cairn client is built.

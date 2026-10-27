@@ -1,8 +1,8 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.6
+## Product & Technical Specification — v0.7
 
 **Date:** 27 October 2026  
-**Status:** Working implementation specification. Gates A and B passed on 27 October; remaining IGI MVP work is in progress. Memory continuity is an explicitly scoped extension, not a new prerequisite for those gates.  
+**Status:** Working implementation specification. Gates A and B passed on 27 October; remaining IGI MVP work is in progress. Cross-review memory is a priority stretch goal (§6.9), not part of the MVP and not a prerequisite for the gates.  
 **Organisation:** Cairn River Ltd  
 **Project:** Standalone AI-first investment-governance application, built on Cairn  
 **Hackathon:** Meta Global AI Developer Hackathon 2026, Startup track, theme "Build for Your World"  
@@ -41,9 +41,9 @@ Three responsibilities are kept apart:
 
 IGI owns the investment data, the investigation and the committee pack. Cairn remains the authoritative system for evidence acceptance.
 
-An investment-governance specialist is a **logical agent definition**, not a particular model instance or chat session. Its investigation notes belong to the review and run; useful firm-specific operational knowledge may be proposed for human confirmation and reused across monthly reviews. During the hackathon, any such memory and generated artifacts remain inside IGI. Shared company memory and agent-accessible artifacts on Cairn are possible future platform capabilities, not a new Cairn deliverable here.
+**[Stretch]** Once the MVP works, IGI may also let Spark propose firm-specific operational knowledge, such as which source is authoritative for look-through data, for an operator to confirm and later reviews to reuse (§6.9). Any such memory stays inside IGI. Shared company memory on Cairn is a possible future platform capability, not part of this project.
 
-The project tests Cairn as a foundation for independently developed, industry-specific AI applications. Building IGI exposed one genuine platform gap: an outside agent cannot learn what happened to evidence it submitted. That gap is being closed with a small, generic Cairn extension (§12.5) rather than a workaround in IGI.
+The project tests Cairn as a foundation for independently developed, industry-specific AI applications. Building IGI exposed one genuine platform gap: an outside agent cannot learn what happened to evidence it submitted. That gap was closed with a small, generic Cairn extension (§12.5) rather than a workaround in IGI.
 
 ## 2. Product Philosophy
 
@@ -88,7 +88,7 @@ A named person in Cairn decides whether each candidate becomes evidence. Cairn r
 
 ### 2.4 Platform boundaries
 
-IGI owns its domain data, importers, agent orchestration, calculations, investigation trace, UI, operational memory, run artifacts and report generation.
+IGI owns its domain data, importers, agent orchestration, calculations, investigation trace, generated files, UI and report generation, and, in the memory stretch, its operational memory.
 
 Cairn owns procedures, records, evidence acceptance, record history, permissions and audit.
 
@@ -96,19 +96,21 @@ Cairn owns procedures, records, evidence acceptance, record history, permissions
 - IGI does not reproduce Cairn's evidence review or acceptance interface.
 - IGI does not change Cairn. Cairn changes go through Cairn's own decision record, guardrails and development rules in the Cairn repository.
 
-### 2.5 Specialist responsibility and durable knowledge
+### 2.5 Specialist responsibility and durable knowledge [Stretch]
 
 The Investment Governance Agent is responsible for preparing and investigating periodic investment-governance reviews. It may produce committee packs, exception analyses and follow-up materials as outputs of that **one responsibility**. Another responsibility, such as client suitability or compliance assurance, warrants a separate logical agent definition, not merely a different document template.
 
 Long-lived knowledge is scoped to the company and the **logical agent definition**, not to the model name, agent process, prompt version or Cairn API key. Replacing Muse Spark with a new model must not erase learned operational knowledge.
 
-The agent may decide what is worth retaining. **It may not unilaterally make that material an authoritative business rule or share it with other agents.** Run/review notes are automatically retained as history; cross-review operational knowledge requires explicit human confirmation. Scope, provenance, effective dates, supersession and access restrictions are part of the data model (§8.6).
+The agent may decide what is worth retaining. **It may not unilaterally make that material an authoritative business rule or share it with other agents.** Run/review notes are automatically retained as history; cross-review operational knowledge requires explicit human confirmation. Scope, provenance, effective dates, supersession and access restrictions are part of the data model (§8.6–8.7).
+
+The MVP has one agent definition, held as a constant id, and builds none of the knowledge handling described here.
 
 ### 2.6 Business process versus execution run
 
-A Cairn procedure defines accountable business checkpoints and a Cairn record represents an instance of that business process. One monthly review record can span several IGI `AnalysisRun` executions, clarifications, accepted evidence items and later committee decisions. Cairn does **not** execute the agent, orchestrate its tool calls or store its transient reasoning state.
+A Cairn procedure defines accountable business checkpoints and a Cairn record represents an instance of that business process. One monthly review record can span several IGI `AnalysisRun` executions, accepted evidence items and later committee decisions, and, in the memory stretch, operator clarifications. Cairn does **not** execute the agent, orchestrate its tool calls or store its transient reasoning state.
 
-Cairn's existing candidate review is the hackathon's human-in-the-loop boundary. A generic agent-requested clarification/approval mechanism inside Cairn is a **post-hackathon platform candidate**, not an existing feature or part of this build.
+Cairn's existing candidate review is the hackathon's human-in-the-loop boundary. Clarifications in the memory stretch are answered in IGI. A generic agent-requested clarification/approval mechanism inside Cairn is a **post-hackathon platform candidate**, not an existing feature or part of this build.
 
 ## 3. Fictional Customer and Business Problem
 
@@ -201,13 +203,16 @@ Muse Image, Muse Voice and SAM are not used. Muse Spark is the central Meta capa
 
 ### 4.3 Stretch goals [Stretch]
 
-Only once the complete MVP works. **The first priority stretch is the narrow cross-review memory demonstration** (§6.9, §8.6); it must not delay the already agreed evidence and committee-pack flow:
+Only once the complete MVP works. **The first priority stretch is a narrow cross-review memory demonstration** (§6.9); it must not delay the already agreed evidence and committee-pack flow:
 
-- approved, generic agent-scoped operational knowledge, proposed by Spark and confirmed in IGI;
-- a compact handover derived from the previous review, with relevant unresolved issues carried forward;
-- one operator clarification that ends a run and starts a new run with the confirmed answer, rather than pretending to resume encrypted reasoning;
-- an October-to-November scenario that reuses approved knowledge and asks again about a new, uncovered instrument;
-- review history and prior generated-artifact lookup for context, without a general-purpose RAG service;
+- one clarification: Spark records an open question about an ambiguous source and carries on; the operator answers in IGI and starts a new run with the answer, rather than pretending to resume encrypted reasoning;
+- approved, generic agent-scoped operational knowledge, proposed by Spark and confirmed by the operator in IGI;
+- an October-to-November scenario that reuses the approved knowledge and asks about a new, uncovered instrument.
+
+Other stretch goals:
+
+- a review handover derived from the previous review, carrying unresolved items forward;
+- `search_history` over approved knowledge, handovers, earlier notes and an index of generated files, without a general-purpose RAG service;
 - re-investigation of a single finding, started by the operator from IGI with a note;
 - investigation of a second, previously unseen dataset during the demo;
 - additional portfolio and performance analytics and richer charts;
@@ -248,11 +253,11 @@ A new read-only intake operation that lets an agent learn what happened to candi
 
 It is generic. Any outside system that submits candidates has the same need. It is not designed around investment governance.
 
-It requires a dated founder decision and an amendment to Cairn's product guardrails, then a separately scoped implementation with tests, all in the Cairn repository under its own rules. IGI does not depend on it for publication until it passes the milestone in §17.1 (Gate A).
+It was authorised by a dated founder decision and an amendment to Cairn's product guardrails, then built with tests in the Cairn repository under its own rules. It was deployed to Cairn Dev and passed the Gate A milestone (§17.1) on 27 October 2026, so IGI relies on it for publication.
 
 ### 5.3 New IGI functionality [New IGI]
 
-Everything in this repository: the synthetic data and scenario generator, importers and validation, the Spark investigation loop and its tools, the Monty adapter, deterministic checks, the investigation trace, findings, the Cairn client and submission ledger, status polling, snapshots, the committee pack, the UI, the evaluation harness, the Cairn test double and the documentation. IGI also owns the basic storage and index of its source and generated artifacts. The priority memory stretch adds agent-scoped knowledge proposals, confirmation, review handovers and historical retrieval entirely within IGI.
+Everything in this repository: the synthetic data and scenario generator, importers and validation, the Spark investigation loop and its tools, the Monty adapter, deterministic checks, the investigation trace, findings, the Cairn client and submission ledger, status polling, snapshots, the committee pack, the UI, the evaluation harness, the Cairn test double and the documentation. IGI also stores its source files and the files it generates (investigation packages and committee packs). The memory stretch adds clarifications, agent-scoped knowledge proposals and confirmation, then review handovers and historical lookup, entirely within IGI.
 
 ### 5.4 Hackathon disclosure
 
@@ -365,20 +370,24 @@ While any submitted finding is pending or incomplete, IGI lists what remains to 
 
 If the verified evidence later changes, the pack keeps its version and is marked stale; a newly generated pack supersedes it (§13.3).
 
-### 6.9 Cross-review knowledge, clarifications and artifacts [New IGI; priority Stretch]
+### 6.9 Cross-review knowledge and clarifications [New IGI; priority Stretch]
 
-**The existing MVP already persists run notes in the investigation trace.** A subsequent analysis within the same review may be given a concise summary of those notes and can inspect its earlier trace. Notes remain attached to the originating `Review` and `AnalysisRun`; they do not automatically become global agent memory.
+The MVP persists each run's notes in its investigation trace (§8.5), attached to the originating `Review` and `AnalysisRun`. Nothing in the MVP passes them to a later run, and they never become global agent memory.
 
 The priority memory slice extends the workflow without changing Cairn:
 
-1. When Spark encounters an unresolved classification, source-of-truth or methodology question, it records the exact ambiguity with source references, and ends the run as `blocked` (or `awaiting_input` once explicitly supported).
-2. The operator answers inside IGI. An answer may resolve the immediate review without being promoted into long-lived knowledge. If Spark identifies future value, it proposes an agent-scoped knowledge record with applicability, provenance and an explanation of what it should *not* imply.
-3. The operator explicitly confirms or rejects the knowledge proposal. Confirmation makes it available to later reviews for the **same logical agent and company**. It does not certify a financial fact or change the authoritative policy table.
-4. A new `AnalysisRun` begins with the operator's clarification, approved applicable knowledge and a concise summary of prior work. The encrypted reasoning of the interrupted run is **not resumed**; IGI reconstructs context from its own stored facts and visible artifacts.
-5. On completion of a review, IGI derives a compact `ReviewHandover`: significant resolved items, outstanding uncertainties, follow-ups and links to source evidence and artifacts. When the next period starts, only relevant handover items — including older unresolved items — are automatically supplied. Raw historical notes remain searchable on demand, not injected wholesale.
-6. IGI indexes its generated investigation packages and committee packs so the same specialist can discover last month's output without the operator uploading it again. Retrieval is bounded to its own authorised IGI company and agent context; older period-specific values are not assumed current.
+1. When Spark meets a classification, source-of-truth or methodology question it cannot resolve from the sources or approved knowledge, it records an `open_question` note with the exact ambiguity and its source references, then carries on with the rest of the review. The run ends `completed_with_uncertainties` with its open questions listed, or `blocked` only if nothing else could proceed (§8.8).
+2. The operator answers inside IGI. An answer may resolve the immediate review without being promoted into long-lived knowledge.
+3. The operator starts a new `AnalysisRun` on the same review with the answers, the earlier run's findings and notes as recorded in its trace, and approved applicable knowledge. The earlier run's encrypted reasoning is **not resumed**; IGI rebuilds the context from its own stored records.
+4. If Spark sees future value in an answer, it calls `propose_knowledge` with applicability, provenance and an explanation of what the knowledge should *not* imply. The operator explicitly confirms or rejects the proposal. Confirmation makes it available to later reviews for the **same logical agent and company**. It does not certify a financial fact or change the authoritative policy table.
+5. When the next period's review starts, approved knowledge applicable to that period is supplied to Spark as data (§8.6).
 
-**Example:** October's provider export uses categories incompatible with the firm's investment taxonomy. Spark asks where the authoritative classification comes from. The analyst confirms the security master for direct securities, and monthly fund-manager look-through reports for multi-asset funds. IGI may retain those *source-selection rules*, after approval. November uses them to obtain current-period data, but asks about a newly encountered instrument rather than inventing a mapping. The October exposure percentages are never silently carried into November.
+**Later stretch,** only once that slice works:
+
+6. On completion of a review, IGI derives a `ReviewHandover` in code, without a model call, from the review's unanswered open questions, findings not yet publication-ready and outstanding committee actions, each with references to its sources. The next review receives every unresolved item, including older ones carried forward; there will be a handful, so there is no relevance ranking. Raw historical notes remain searchable through `search_history`, not injected wholesale.
+7. IGI indexes its generated investigation packages and committee packs (§10.3) so `search_history` can find earlier output by reference, without the operator uploading it again. Retrieval is bounded to IGI's own company and agent context. Earlier packs carry period-specific values, so their text is never supplied automatically and older values are never treated as current.
+
+**Example:** October's look-through data for some multi-asset funds comes from two sources that disagree: a provider export and the fund manager's own report. Spark asks which is authoritative. The analyst answers: the fund-manager report. Spark proposes remembering that *source-selection rule*, and the analyst confirms it. November applies the rule to November's look-through data, but asks about a newly held fund that only the provider export covers, rather than inventing a mapping. The October exposure percentages are never carried into November.
 
 This is **learning with human supervision**, not automatic self-modification of policies. Company-level knowledge shared with other specialist agents is deliberately excluded from the hackathon (§20).
 
@@ -429,7 +438,9 @@ These establish whether data is safe to analyse. They are not the investigation.
 
 ### 7.4 Two-period memory demonstration [Stretch]
 
-Prepare a **separate** synthetic continuity fixture with two periods. October includes a provider classification that is ambiguous against the firm's taxonomy and cannot safely be normalised from available input. The operator supplies the source-selection rule; the agent proposes to remember it; the operator confirms it. November repeats the familiar source but changes period-specific values and introduces one new asset with an unrecognised mapping. Expected behaviour: reuse the approved source rule, fetch the current-period classification/exposure, and ask about the new asset rather than guess.
+Prepare a **separate** synthetic continuity fixture with two periods, October and November. Its look-through rows carry an optional `source` column (provider export or fund-manager report), and for some multi-asset funds the two sources disagree; the `lookthrough_exposure` check takes the source to use as an argument. The main scenarios keep a single look-through source, so the importer, its validation and the check change only to accept the column and the argument.
+
+In October, Spark cannot tell which source is authoritative and asks. The operator supplies the source-selection rule; Spark proposes to remember it; the operator confirms it. November keeps the same two sources with new period values, and adds one multi-asset fund that only the provider export covers, with an asset-class label outside the firm's taxonomy. Expected behaviour: apply the approved rule, read November's values rather than October's, and ask about the new fund rather than guess.
 
 Keep this scenario out of the primary Gate B evaluation. It tests the memory/clarification slice, not whether the agent can discover planted investment exceptions. Its answer key is likewise inaccessible to Spark.
 
@@ -455,7 +466,7 @@ The **MVP retains seven tools covering five capabilities**. Every core tool is r
 | Record work | `record_note` | Records an observation, hypothesis, assumption, open question or missing-information blocker. |
 | | `propose_finding` | Creates a structured finding: statement, classification, portfolios, policy rule and version, cited source rows, execution and check ids, explanation, assumptions and uncertainties. |
 
-**Optional memory tools [Stretch]**: `search_history` searches approved knowledge and relevant prior review handovers/notes and returns only bounded, source-attributed results (including artifact references). `propose_knowledge` writes a **proposal**, never an approved memory; the backend/operator handles confirmation. Use `record_note` for clarification requests, with a typed note kind, rather than adding another model tool. The backend may expose previous IGI-generated report text through bounded historical lookup if needed; no unrestricted object-store tool or cross-agent access is implied.
+**Memory tools [Stretch].** The priority slice adds one tool, `propose_knowledge`, which writes a **proposal**, never approved knowledge; the operator confirms it in IGI. Clarification requests use `record_note`'s existing `open_question` kind, so they need no new tool. The later stretch adds `search_history`, which searches approved knowledge, review handovers, earlier notes and the index of generated files, and returns only bounded, source-attributed results. No unrestricted object-store tool or cross-agent access is implied.
 
 Spark has no Cairn tools and no Cairn credentials. Record start, submission, status polling, snapshots and pack generation belong to the backend.
 
@@ -480,7 +491,7 @@ Spark cannot change investment data or anything in Cairn.
 
 Each run has configured limits on model tokens and estimated cost, wall-clock time, tool calls, Python executions, and rows and bytes returned by data tools.
 
-A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion. A clarification can use `blocked` in the MVP; the memory stretch may add an explicit `awaiting_input` state. An answer starts a new run with reconstructed persisted context and a reference to the blocked run, not a resumed Meta Responses conversation.
+A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion. An open question does not end a run: Spark records it and carries on, and the run ends `completed_with_uncertainties` with its open questions listed. `blocked` means nothing else in the review could proceed. In the memory stretch, an operator's answer starts a new run with context rebuilt from IGI's records and a reference to the earlier run, never a resumed Meta Responses conversation (§8.8).
 
 ### 8.5 Investigation trace
 
@@ -495,14 +506,18 @@ Spark's reasoning is never visible to IGI. The Responses API returns it only as 
 | Scope | Owner / key | Persistence and delivery |
 |---|---|---|
 | **Run** | `analysisRunId` | Ephemeral model context; visible `TraceEvent` and code/execution data persisted for reproducibility. Encrypted reasoning is not persisted. |
-| **Review** | `companyId` + `agentDefinitionId` + `reviewId` | Investigation notes and their sources are attached to the review and run, never treated as global facts. Follow-up runs receive a **summary**, with detailed notes available for retrieval. |
-| **Cross-review handover** | `companyId` + `agentDefinitionId` + originating `reviewId` | One derived, versioned summary of outstanding matters and relevant follow-ups. Relevant entries are included when future reviews begin until resolved or superseded; original history remains accessible. |
-| **Agent knowledge** | `companyId` + stable `agentDefinitionId` + `knowledgeId` | Reusable company-specific knowledge for this specialist. Spark proposes; a human confirms. Scoped, versioned, attributed and validity-checked. Relevant approved entries are supplied automatically; deeper history is searched as needed. |
+| **Review** | `agentDefinitionId` + `reviewId` | Investigation notes and their sources are attached to the review and run, never treated as global facts. In the memory stretch, a follow-up run receives the earlier run's findings and notes as recorded (§6.9), not a model-written summary. |
+| **Cross-review handover** [later Stretch] | `agentDefinitionId` + originating `reviewId` | Derived in code from unresolved items and versioned. Every unresolved item is included when the next review begins, until resolved or superseded; original history remains accessible. |
+| **Agent knowledge** | stable `agentDefinitionId` + `knowledgeId` | Reusable company-specific knowledge for this specialist. Spark proposes; a human confirms. Scoped, versioned, attributed and validity-checked. Approved, unsuperseded entries effective for the review's period are supplied automatically as data; deeper history through `search_history` in the later stretch. |
 | **Company-wide knowledge** | Company and access scopes, independent of an agent | **Post-hackathon only.** Sharing or promotion between specialist agents requires explicit authority and appropriate source permissions. |
 
-For the hackathon there is only one fictional company and one logical `investment-governance` agent definition, but its identifier must remain stable across runs and model upgrades. The data schema should not depend on `muse-spark-1.3`, a transient chat ID or Cairn's agent-key identifier.
+For the hackathon there is one fictional company and one logical agent definition, `investment-governance`. Both are constants. The agent-definition id is stored as a plain string on `AnalysisRun` and on knowledge records; it must stay stable across runs and model upgrades, and the schema must not depend on `muse-spark-1.3`, a transient chat ID or Cairn's agent-key identifier. The company is implicit in every scope above: there is no `Company` table and no `companyId` column until a second company exists, and an `AgentDefinition` table only if the stretch needs one.
 
-Do not automatically supply every historical note to every new review. The context assembler gives the current objective, current-source catalogue and policies, **applicable approved agent knowledge**, and concise unresolved handover items. `search_history` can fetch more when a question warrants it. A handover is a derivative index with references, not authoritative evidence.
+Do not automatically supply every historical note to every new review. The context assembler gives the current objective, current-source catalogue and policies, **applicable approved agent knowledge** and, in the later stretch, unresolved handover items. `search_history` can fetch more when a question warrants it. A handover is a derivative index with references, not authoritative evidence.
+
+**Where memory enters the prompt.** Approved knowledge and handover items go in a delimited data block in the run's first input turn, each with its id, confirmer and effective dates, introduced as material to weigh rather than instructions to follow. They are never added to the `instructions` field.
+
+Investigation evaluation runs start with an empty knowledge and handover store; the continuity fixture has its own (§15.2).
 
 ### 8.7 Learning, approval and validity [Stretch]
 
@@ -510,7 +525,7 @@ A generic, versioned `AgentKnowledge` record (PostgreSQL with structured metadat
 
 A knowledge record must contain, at minimum:
 
-- Stable ID, company and logical agent definition; title and content (structured data or text).
+- Stable ID and logical agent definition (the company is implicit while there is one); title and content (structured data or text).
 - Originating review/run, evidence or artifact references, proposer and confirmation record.
 - Scope/applicability: source system, instrument/portfolio class, period, or other justified selectors.
 - Effective date(s) or review trigger; version, status (`proposed`, `approved`, `rejected`, `superseded`) and supersession linkage.
@@ -518,15 +533,15 @@ A knowledge record must contain, at minimum:
 
 Only a named operator can approve promotion from proposed knowledge. A correction creates a new version and supersedes the old one without erasing history. Approval of operational knowledge does **not** replace approval of source evidence in Cairn and does not certify every later application of that knowledge.
 
-**Authority rule:** current source documents, effective authoritative structured policies and Cairn-accepted evidence take precedence over memory. A remembered mapping or source convention is *not* an authoritative current-period holding or exposure value. If current data conflicts with remembered knowledge, the agent asks for clarification and does not quietly overwrite policy or guess a new mapping. Remembered material is treated as data, not as fresh model instructions; any source-based prompt-injection attempt must not be promoted into an agent directive.
+**Authority rule:** current source documents, effective authoritative structured policies and Cairn-accepted evidence take precedence over memory. A remembered mapping or source convention is *not* an authoritative current-period holding or exposure value. If current data conflicts with remembered knowledge, the agent records an open question (§8.8) and does not quietly overwrite policy or guess a new mapping. Remembered material is treated as data, not as fresh model instructions (§8.6); any source-based prompt-injection attempt must not be promoted into an agent directive.
 
 The initial implementation can use PostgreSQL JSONB and scoped indexes/text search. No embeddings, vector database, knowledge graph, automatic knowledge-consolidation agent or generalized memory service is required.
 
 ### 8.8 Clarification lifecycle [Stretch]
 
-When a material ambiguity cannot safely be resolved from existing sources or approved knowledge, Spark uses `record_note` to register a typed clarification request: the question, affected source/instrument, why it matters and what would enable resumption. The run ends `blocked` / `awaiting_input`. The operator answers in IGI. The answer is recorded with author, time and references, and may resolve this review without becoming persistent knowledge.
+When a material ambiguity cannot safely be resolved from existing sources or approved knowledge, Spark records an `open_question` note: the question, the affected source or instrument, why it matters and what answer would settle it. It then carries on with the rest of the review. The run ends `completed_with_uncertainties` with its open questions listed, or `blocked` only if nothing else could proceed. The operator answers in IGI. The answer is recorded with author, time and references, and may resolve this review without becoming persistent knowledge.
 
-The operator can explicitly start a **new** analysis run with the answer and a compact summary of relevant prior visible work. Model-side encrypted reasoning from the previous run is not restorable or replayed. If Spark finds the answer reusable, it separately calls `propose_knowledge` and waits for confirmation before future runs may rely on it.
+The operator can explicitly start a **new** analysis run with the answers and the earlier run's findings and notes as recorded. Model-side encrypted reasoning from the previous run is not restorable or replayed. If Spark finds an answer reusable, it separately calls `propose_knowledge`; future runs rely on it only after the operator confirms it.
 
 Neither clarification nor knowledge approval is Cairn evidence acceptance. They remain IGI operational interactions during the hackathon. A generic, authorised Cairn human-intervention request/response surface is a potential later platform capability (§20).
 
@@ -671,15 +686,15 @@ Suggested layout, created only as needed:
 - `eval/`: evaluation harness and scoring; answer keys live here, outside anything the server reads;
 - `docs/`: specification, architecture, Cairn contract summary, demo guide.
 
-### 10.3 Generated artifacts and previous outputs [New IGI; existing MVP storage, retrieval Stretch]
+### 10.3 Generated files and previous outputs [New IGI; storage MVP, index and retrieval Stretch]
 
-IGI stores **raw input versions, generated Python source/outputs, investigation packages and committee packs** in its own DigitalOcean storage and database, with stable artifact IDs, SHA-256 hashes, content type, producer (`AnalysisRun`/agent), source references, creation time, reporting period and retention metadata. Treat generated artifacts as immutable versions; produce a new version for changes. Artifact metadata is centrally indexed in IGI so the specialist can discover last month's pack or calculation without requiring a fresh upload.
+**MVP.** IGI stores uploaded source files, investigation packages and committee packs in its private Spaces bucket. Each file is referenced, with its SHA-256 hash, from the row that already owns it: `SourceDocument` for a source, the finding version for its investigation package (the ledger records the hash of what was submitted), and `CommitteePack` for a pack. Python source and output stay in the database with their `CodeExecution`. Generated files are immutable; a change produces a new version.
 
-The run's transient working files may be short-lived. The final pack, its accepted-evidence snapshot, submitted investigation packages and reproducibility data must survive the run. The original IGI artifact remains available under IGI permissions even if a related copy was submitted to Cairn.
+The run's transient working files may be short-lived. The final pack, its accepted-evidence snapshot, submitted investigation packages and reproducibility data must survive the run. The original IGI file remains available under IGI permissions even if a copy was submitted to Cairn.
 
 **Artifact != accepted evidence.** An automatically saved artifact is agent-produced and not human-reviewed. Submitting a copy to Cairn creates a candidate, and Cairn's human filing creates accepted evidence. Preserve the correlation and hashes, but never treat the IGI artifact's existence as proof of Cairn acceptance.
 
-For the memory stretch, `search_history` may return the identity and summary of an earlier artifact and IGI may provide bounded extracted text/structured content where authorised. This is not a general object-store browser or a production content-retrieval framework. The file itself remains in IGI Spaces for the hackathon. Cairn's encrypted StoredFiles and possible agent-accessible artifact registry are **future platform candidates**, not implemented by IGI (§20).
+**Later stretch.** A `RunArtifact` index over those files adds content type, producer (`AnalysisRun`), source references, creation time and reporting period, so `search_history` can return the identity and summary of an earlier pack or package and, where authorised, bounded extracted text. This is not a general object-store browser or a production content-retrieval framework. The files stay in IGI's Spaces bucket. An agent-accessible artifact registry on Cairn's existing file storage is a **future platform candidate**, not implemented by IGI (§20).
 
 ## 11. Application Data Model [New IGI]
 
@@ -690,20 +705,20 @@ IGI owns operational data. Cairn owns accepted process evidence. Cairn is not us
 | `Review` | Reporting period, scope, status, Cairn record reference and step and slot ids |
 | `SourceDocument` | File, version, SHA-256 hash, origin, reporting period, validation results |
 | Domain rows | Portfolios, positions, exposures, performance, fees, committee actions, and structured policy rules (`PolicyRule`), each linked to its `SourceDocument` |
-| `AnalysisRun` | Model, prompt and tool versions, configuration, budget, final status; stable agent-definition ID and optional predecessor/clarification link |
+| `AnalysisRun` | Model, prompt and tool versions, configuration (including whether memory was enabled and which knowledge entries were supplied), budget, final status; the agent-definition id as a constant string (§8.6); **[Stretch]** the earlier run it follows |
 | `TraceEvent` | One step of the trace: model turn, tool call, note |
 | `CodeExecution` | Source, inputs and hashes, outputs, errors, limits, runtime versions |
-| `RunArtifact` | Indexed immutable input/output files, generated reports and investigation packages, with hashes, reporting period, producer and access scope; existing IGI storage, not Cairn evidence |
-| `AgentDefinition` **[Stretch]** | Stable specialist identity and responsibility, separate from model/runtime/Cairn key; one investment-governance definition in this prototype |
+| `RunArtifact` **[Stretch]** | Index over IGI's stored files (§10.3): hash, content type, reporting period, producer and access scope, for historical lookup; not Cairn evidence |
+| `AgentDefinition` **[Stretch]** | Stable specialist identity and responsibility, separate from model/runtime/Cairn key; only if the stretch needs a table, since the MVP uses a constant id |
 | `AgentKnowledge` / `KnowledgeProposal` **[Stretch]** | Proposed/approved scoped knowledge, human confirmer, provenance, validity, version and supersession |
-| `ReviewHandover` **[Stretch]** | Derived, versioned cross-period summary and unresolved-item references, scoped to company, agent and originating review |
-| `Clarification` **[Stretch]** | Unresolved operator question, user answer, linked blocked and restarted runs, and optional knowledge proposal |
-| `Finding` | Statement, classification, materiality, citations, validation state, uncertainty, version, and withdrawal reason and time if withdrawn |
+| `ReviewHandover` **[Stretch]** | Unresolved-item references derived in code, versioned, scoped to agent and originating review |
+| `Clarification` **[Stretch]** | An `open_question` note, the operator's answer, the run that raised it and the run started with the answer, and optional knowledge proposal |
+| `Finding` | Statement, classification, materiality, citations, validation state, uncertainty, version, investigation-package file and hash per version, and withdrawal reason and time if withdrawn |
 | `CairnSubmission` | The submission ledger entry (§12.4) |
 | `ReviewedSnapshot` | The publication-ready findings with their accepted assertion and package evidence, the counts of rejected and withdrawn findings, and the source versions behind them |
 | `CommitteePack` | Generated output, version, snapshot reference, hash, stale/superseded state |
 
-Identifiers stay stable through the investigation and publishing lifecycle. Exact schemas follow implementation. `TraceEvent` and `RunArtifact` are part of the ordinary investigation/audit trace; the four knowledge/clarification concepts marked **[Stretch]** are added only after the primary end-to-end MVP is functional. Do not create a second generic memory platform in this repository.
+Identifiers stay stable through the investigation and publishing lifecycle. Exact schemas follow implementation. `TraceEvent` is part of the ordinary investigation and audit trace. The entities marked **[Stretch]** are added only after the primary end-to-end MVP is functional. There is one fictional company and no company entity (§8.6). Do not create a second generic memory platform in this repository.
 
 ## 12. Cairn Integration
 
@@ -928,9 +943,9 @@ Small and coherent. Visual polish comes after the gates in §17.1 are passed.
 - **Reviews:** a list of reviews with period, status and pack versions.
 - **Review page**, with four tabs:
   - **Sources:** upload, metadata, reporting dates, validation issues.
-  - **Investigation** (the centrepiece): the chronological trace of real tool calls, data accessed, Python run, inputs, outputs, notes and findings, with follow-up investigations visible as such. Readable without reading every line of code: summaries first, code and data on expansion. **[Stretch]** Show a small inline clarification panel and pending/approved knowledge proposals; no new standalone memory management application.
+  - **Investigation** (the centrepiece): the chronological trace of real tool calls, data accessed, Python run, inputs, outputs, notes and findings, with follow-up investigations visible as such. Readable without reading every line of code: summaries first, code and data on expansion. **[Stretch]** Show open questions with an answer box, a button to start a new run with the answers, and pending/approved knowledge proposals; no new standalone memory management application.
   - **Findings:** each finding with classification, figures, citations, validation state, separate assertion/file submission and Cairn statuses, the finding state (§6.7), and a link to the Cairn record. Buttons to submit to Cairn, to resolve uncertain submissions, and to withdraw a finding with a reason. No accept or reject controls.
-  - **Pack:** the snapshot, preview, print to PDF, history, stale and superseded markers. Earlier pack versions are indexed as IGI artifacts; **[Stretch]** allow the agent to retrieve last period's report by its reference.
+  - **Pack:** the snapshot, preview, print to PDF, history, stale and superseded markers. Earlier pack versions stay available as IGI files (§10.3).
 
 No raw chain-of-thought is shown, and nothing is presented as the model's private reasoning.
 
@@ -957,6 +972,8 @@ Scenarios include:
 
 A distinct **[Stretch]** two-period continuity test checks that a confirmed source-selection rule is reused, new instrument classifications are not guessed, and last month's exposure numbers are not reused as current-period data. Keep the memory test's expected answer separate from the agent context; it does not replace the primary blind investigation evaluation.
 
+**Memory never reaches an evaluation run.** There is one company and one agent definition, so approved knowledge and handovers from development or demo reviews would otherwise be supplied to every later run, holdout runs included. Every development, holdout and Gate B run starts with an empty knowledge and handover store, and each run records which knowledge entries it was given (§11). The continuity fixture (§7.4) is the exception: it runs on its own store, and its November run sees only the knowledge approved during its October run.
+
 **Development scenarios** are used freely while building. **Holdout scenarios** are kept separate:
 
 - generated with seeds and issue combinations not used in development;
@@ -970,6 +987,7 @@ Isolation is enforced by construction, not just by rule:
 - Spark's tools read only the review's imported `SourceDocument` rows;
 - answer keys live under `eval/` and are never imported or readable by the server;
 - Monty has no filesystem or network;
+- investigation evaluation runs see no approved knowledge or handover items;
 - scenario file names, sheet names and descriptions are neutral and reveal nothing about planted issues;
 - prompts, tool descriptions and data descriptions contain no expected findings.
 
@@ -1028,7 +1046,7 @@ Real Cairn is used for:
 - behaviour when Cairn or the status operation is unavailable;
 - one end-to-end run against the test double.
 
-**If the memory stretch is implemented**, add tests for company/agent/review scoping; isolation from other agent definitions; proposed knowledge being ignored until human-approved; applicability and effective dates; contradictory/superseded instructions; previous handover with older unresolved items; missing-context clarifications and new-run restart; retrieval of a previous report from IGI artifact storage; and prompt injection via stored memories. The answer keys for continuity fixtures must also remain unavailable to Spark.
+**If the memory stretch is implemented**, add tests for agent/review scoping; isolation from other agent definitions; proposed knowledge being ignored until human-approved; applicability and effective dates; contradictory/superseded instructions; an open question that does not stop the run, and a new run started with the answer; knowledge supplied as data, never in `instructions`; evaluation runs receiving no knowledge; and prompt injection via stored memories. The later stretch adds a previous handover with older unresolved items and lookup of a previous report from IGI's stored files. The answer keys for continuity fixtures must also remain unavailable to Spark.
 
 ## 16. Security and Operations [New IGI]
 
@@ -1090,10 +1108,10 @@ and does it again on a second variation of the scenario.
 | Wed 28 – Thu 29 Oct | **Gate A** in a Cairn session: implement, test, deploy, run the milestone. **Gate B** in IGI: the first development scenario and importer, the agent loop, the seven tools, the Monty adapter; prove a non-obvious finding twice. |
 | Fri 30 – Sat 31 Oct | Minimum end-to-end IGI: persistence, trace, findings, record start, submission ledger, status polling, snapshot, HTML pack. One real end-to-end run against Cairn. Deploy. |
 | Sun 1 – Mon 2 Nov | Evaluation harness, scenario variations and test double. Fixes against development scenarios only. Investigation trace UI. Prompt-injection tests. **Only if the MVP is complete:** the narrow agent-memory/clarification and two-period continuity slice. |
-| Tue 3 Nov | Freeze at a tagged commit. Write and generate holdout scenarios. Run the holdout evaluation several times and record the results as they come out. |
+| Tue 3 Nov | Freeze at a tagged commit, recording whether the memory tools are enabled; the holdout runs that configuration, with an empty knowledge store (§15.2). Write and generate holdout scenarios. Run the holdout evaluation several times and record the results as they come out. |
 | Wed 4 Nov | Demo video, README and disclosure, check the public repository and deployed demo. Submit by 18:00 GMT, well before the 02:00 GMT (5 Nov) deadline. |
 
-Stretch goals start only if every MVP item in §19 is done.
+Stretch goals start only if every MVP item in §19.1 is done.
 
 ### 17.3 Implementation plan
 
@@ -1127,7 +1145,7 @@ The detailed Cairn design is kept with Cairn's private documentation.
 5. Evaluation harness on the test double; then the holdout run.
 6. Deploy, record the demo, submit.
 
-**6. Optional memory slice:** If all six steps work with comfortable margin, introduce the `AgentKnowledge` proposal/approval store, `ReviewHandover`, clarification/restarted-run handling, and bounded historical artifact lookup. Confirm the two-period scenario independently. This is not an excuse to rebuild the model loop or create Cairn memory APIs.
+**Optional memory slice.** Only once steps 1–4 work end to end and the evaluation harness runs on the test double, and before the freeze: add clarification and new-run handling, `propose_knowledge` with the `AgentKnowledge` proposal and approval store, and the two-period fixture (§6.9 steps 1–5, §7.4). Confirm the two-period scenario independently. The handover, `search_history` and the file index come only after that. This is not an excuse to rebuild the model loop or create Cairn memory APIs.
 
 ## 18. Three-Minute Demo
 
@@ -1143,9 +1161,11 @@ The detailed Cairn design is kept with Cairn's private documentation.
 
 **2:35–3:00, significance.** Meta for intelligence, Monty for executable investigation, Cairn for accountability. Existing Cairn, the new Cairn extension and new IGI are identified. A specialist application built quickly on an existing evidence platform: a repeatable forward-deployed delivery model.
 
-The demo shows only working functionality. If Gate A is not passed, it does not show verified acceptance. **Optional memory variant:** if completed and independently tested, replace a few seconds of introductory/UI footage with the October-to-November handover: one approved source-selection rule reused and one new asset correctly sent back for clarification. Do not displace the live investigation, Monty computation or Cairn human acceptance to fit this in.
+The demo shows only working functionality. If Gate A is not passed, it does not show verified acceptance. **Optional memory variant:** if completed and independently tested, replace a few seconds of introductory/UI footage with the October-to-November reuse: one approved source-selection rule reused and one new asset correctly sent back for clarification. Do not displace the live investigation, Monty computation or Cairn human acceptance to fit this in.
 
-## 19. Definition of Done [MVP]
+## 19. Definition of Done
+
+### 19.1 MVP [MVP]
 
 - [ ] A review can be created and loaded with a realistic synthetic dataset.
 - [ ] Spark investigates without access to expected findings.
@@ -1166,16 +1186,18 @@ The demo shows only working functionality. If Gate A is not passed, it does not 
 
 Where a required integration is not available, the limitation is documented and completed work is kept distinct from future work.
 
-### 19.1 Priority memory stretch acceptance (not part of MVP)
+### 19.2 Priority memory stretch [Stretch]
 
-- [ ] Investigation notes remain scoped to their originating review/run and can be summarised or retrieved later without automatically becoming approved memory.
-- [ ] Spark can propose a generic reusable item, and a human confirms it before later runs use it.
-- [ ] Knowledge belongs to the fictional company and stable investment-governance agent definition, not the current model/run/key.
-- [ ] A subsequent review automatically gets a relevant handover and applicable approved agent knowledge, not the entire historical transcript.
-- [ ] An unresolved clarification produces a recorded operator question and starts a **new** run with the answer rather than claiming to resume encrypted reasoning.
-- [ ] The November fixture reuses an October source-selection convention while requiring new current-period exposure values and clarification for a newly unknown instrument.
-- [ ] A prior IGI-generated report or investigation package can be located by reference and read through authorised, bounded IGI access without a new upload.
-- [ ] All tests distinguish unapproved, stale, conflicting or out-of-scope memories from usable approved knowledge.
+Not part of the MVP.
+
+- [ ] Investigation notes remain scoped to their originating review and run, and reach a later run only as recorded findings and notes, never as approved memory.
+- [ ] Spark can propose a generic reusable item with `propose_knowledge`, and the operator confirms it before later runs use it.
+- [ ] Knowledge belongs to the stable investment-governance agent definition, not the current model, run or key.
+- [ ] A subsequent review automatically gets applicable approved knowledge as a data block, not the entire historical transcript.
+- [ ] An ambiguity produces a recorded open question without stopping the rest of the run, and the operator's answer starts a **new** run rather than claiming to resume encrypted reasoning.
+- [ ] The November fixture reuses October's source-selection rule while reading November's values, and asks about the newly held fund.
+- [ ] Investigation evaluation runs receive no approved knowledge; the continuity fixture uses only what its own October run approved.
+- [ ] Tests distinguish unapproved, stale, conflicting or out-of-scope memories from usable approved knowledge.
 
 If incomplete by the evaluation freeze, document it as unfinished stretch work and exclude it from the demo; do not compromise the primary blind evaluation.
 
@@ -1191,13 +1213,13 @@ Afterwards, assess:
 - whether Cairn's APIs and evidence model are sufficient, and which further platform capabilities would be reused across engagements;
 - whether this becomes a packaged product or stays a client-specific offering;
 - which company and agent knowledge should be centralised, and what proves reuse across **at least two distinct specialist applications**;
-- whether prior agent-generated artifacts require cross-application discovery and download with Cairn's existing encrypted StoredFiles layer;
+- whether prior agent-generated artifacts require cross-application discovery and download with Cairn's existing file storage;
 - which human clarification/approval requests should eventually become governed, durable Cairn interactions.
 
 **Potential Cairn platform evolution — not committed implementation:**
 
 - **Governed memory:** company-wide approved policies and context, specialist agent knowledge, and handovers, with tenant/access scopes, provenance, time validity, supersession and human confirmation. This is not an instruction to move IGI's current run state or encrypted model reasoning into Cairn.
-- **Governed artifact registry:** metadata, permissions, versioned references and controlled retrieval over Cairn's already tenant-isolated encrypted file storage. Automatically generated run artifacts must remain distinct from evidence accepted into records. A future specialist should be able to find a previous report **only if authorised**.
+- **Governed artifact registry:** metadata, permissions, versioned references and controlled retrieval over Cairn's existing file storage. Automatically generated run artifacts must remain distinct from evidence accepted into records. A future specialist should be able to find a previous report **only if authorised**.
 - **Cairn procedures and records as business-process checkpoints:** one business record may span many agent executions, tools and clarifications. Cairn governs human interventions and accountable outcomes; external verticals run and resume their own agent workflows. A generic human request/response API is a candidate, not built today.
 - **FDE onboarding:** a future client engagement could preload approved firm terminology, policies, system/data-source descriptions and document conventions into appropriately scoped company knowledge. It should not turn IGI's hackathon into a basic policy-document RAG product.
 
@@ -1211,14 +1233,14 @@ This specification defines product intent, boundaries and outcomes. Before imple
 
 1. Validate Meta Model API tool calling and structured output with a real request from the UK.
 2. Validate Monty's supported subset, limits and installation with the installed version.
-3. Build to Cairn's documented intake contract (§12.1) and, once Gate A passes, the status extension (§12.5).
+3. Build to Cairn's documented intake contract (§12.1) and the status extension (§12.5), which passed Gate A.
 4. Prefer tested calculations over model-generated numbers.
 5. One agent and one working end-to-end flow first.
 6. No Cairn changes from this repository. Cairn changes follow Cairn's own process.
 7. Keep new IGI functionality identifiable in the public repository.
 8. Agent-scoped memory and artifacts are **vertical-owned for this hackathon**. Do not create shared memory, artifact or generic approval APIs in Cairn as part of this project.
 9. Do not promote unresolved observations, agent-suggested mappings or historical exposure values into authoritative rules. Require human confirmation and period-aware retrieval for reusable knowledge.
-10. Preserve the seven-tool investigative MVP and the completed Cairn read-back contract; implement `search_history`/`propose_knowledge` only for the priority memory stretch.
+10. Preserve the seven-tool investigative MVP and the completed Cairn read-back contract; add `propose_knowledge` only for the priority memory stretch, and `search_history` only after it.
 
 ### Public references
 
@@ -1242,6 +1264,17 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.7, 27 October 2026**
+
+- Kept memory infrastructure out of the MVP: files are stored in Spaces and referenced from the rows that own them (`SourceDocument`, the finding version, `CommitteePack`), and the `RunArtifact` index moved to the later stretch without retention metadata. The agent definition is a constant id and there is no company entity (§8.6, §10.3, §11).
+- Evaluation runs start with an empty knowledge and handover store and record the knowledge they were given; the freeze records whether the memory tools are enabled (§8.6, §15.2, §17.2).
+- Labelled the memory text in §1–2 as stretch, and replaced "extension" with "stretch" in the status line.
+- Narrowed the priority memory slice to one clarification, `propose_knowledge` with operator confirmation, and the October-to-November reuse. The handover, `search_history` and lookup of earlier packs became later stretch, and earlier pack text is never supplied automatically (§4.3, §6.9, §8.2, §19.2).
+- An open question no longer ends a run: Spark records it with the existing `open_question` note kind and carries on, and the run ends `completed_with_uncertainties`. Removed `awaiting_input` (§6.9, §8.4, §8.8).
+- The handover is derived in code from unresolved items, with no relevance ranking. Approved knowledge enters the prompt as a delimited data block in the first input turn, never in `instructions` (§6.9, §8.6).
+- The continuity example and fixture use two disagreeing look-through sources, through a `source` column and a source argument on the `lookthrough_exposure` check, rather than new security-master and provider-export file types (§6.9, §7.4).
+- Replaced the name of a private Cairn component with "Cairn's existing file storage" (§10.3, §20). §5.2 and §21 now say the read-back passed Gate A. The optional memory slice is a paragraph of §17.3, placed before the freeze, and §19 is split into MVP (§19.1) and stretch (§19.2) acceptance.
 
 **v0.6, 27 October 2026**
 
