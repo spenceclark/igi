@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { execSync } from 'node:child_process'
 import { saveRun, type TraceEvent } from './db.ts'
-import { MODEL, costOf, respond } from './model.ts'
+import { MODEL, costOf, respond, type InputItem } from './model.ts'
 import { MONTY_VERSION } from './sandbox.ts'
 import type { Review } from './sources.ts'
 import { TOOLS, callTool, type RunState } from './tools.ts'
@@ -95,7 +95,7 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
   await save()
 
   // Encrypted reasoning items live only in this array, in memory, for this run (§8.5).
-  const input: any[] = [{ role: 'user', content: brief(review, budget) }]
+  const input: InputItem[] = [{ role: 'user', content: brief(review, budget) }]
   const deadline = Date.now() + budget.maxMinutes * 60_000
   try {
     while (!status) {
@@ -107,8 +107,8 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
       const { response, ms, attempts } = await respond({ instructions: INSTRUCTIONS, input, tools: TOOLS, reasoning: { effort: budget.effort }, max_output_tokens: budget.maxOutputTokens })
       const u = costOf(response.usage)
       for (const k of Object.keys(usage) as (keyof typeof usage)[]) usage[k] += u[k]
-      const items: any[] = response.output ?? []
-      const text = items.filter((i) => i.type === 'message').flatMap((m) => (m.content ?? []).map((c: any) => c.text ?? '')).join('\n').trim()
+      const items = response.output ?? []
+      const text = items.filter((i) => i.type === 'message').flatMap((m) => (m.content ?? []).map((c) => c.text ?? '')).join('\n').trim()
       const calls = items.filter((i) => i.type === 'function_call')
       event('model_turn', { turn: turns, ms, attempts, response_status: response.status, incomplete: response.incomplete_details ?? undefined, usage: u, message: text || undefined, tool_calls: calls.map((c) => c.name) })
       log(`[turn ${turns} ${(ms / 1000).toFixed(1)}s $${usage.costUsd.toFixed(3)}] ${calls.map((c) => c.name).join(', ') || '(no tool call)'}${text ? ` | ${clip(text.replace(/\s+/g, ' '), 160)}` : ''}`)
@@ -126,12 +126,14 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
       }
       for (const c of calls) {
         toolCalls++
-        let args: any = {}
+        let args: Record<string, unknown> = {}
         let output: unknown
         const started = performance.now()
         try {
           if (toolCalls > budget.maxToolCalls) throw new Error('tool-call budget is spent; reply with your summary now')
-          args = JSON.parse(c.arguments || '{}')
+          const parsed: unknown = JSON.parse(c.arguments || '{}')
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('arguments must be a JSON object')
+          args = parsed as Record<string, unknown>
           output = await callTool(state, c.name, args)
         } catch (e) {
           output = { error: (e as Error).message }

@@ -2,6 +2,7 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import postgres from 'postgres'
+import type { Finding } from '../src/tools.ts'
 
 const SERVER = 'postgres://igi:igi@127.0.0.1:5434'
 let skip: string | false = false
@@ -26,7 +27,7 @@ async function reset() {
   await db!.saveReview({ id: 'r1', periodEnd: '2026-09-30' })
 }
 
-const finding = (id: string, more: Record<string, unknown> = {}) => ({
+const finding = (id: string, more: Partial<Finding> = {}): Finding => ({
   id,
   title: `Finding ${id}`,
   statement: 'Equity look-through exposure is above the limit.',
@@ -35,6 +36,7 @@ const finding = (id: string, more: Record<string, unknown> = {}) => ({
   materiality: 'high',
   portfolios: ['P1'],
   check_ids: ['C1'],
+  explanation: 'The limit is 35%.',
   validation: { state: 'validated', matched: ['exposure: 36.97% (C1)'], unmatched: [] },
   ...more,
 })
@@ -56,7 +58,7 @@ test('db: a run saved during and after the loop reads back whole', { skip }, asy
     { id: 'X1', purpose: 'p', code: 'rows', ok: true, result: ['0.3697', '1'], stdout: '', ms: 5, reads: [{ source: 'positions', returned: 3 }] },
     { id: 'X2', purpose: 'p', code: 'x', ok: false, result: undefined, stdout: 'out', error: 'TypeError', errorType: 'TypeError', ms: 2, reads: [] },
   ]
-  const checks = [{ id: 'C1', args: { check: 'lookthrough_exposure', portfolio_id: 'P1' } as any, result: { exposure: '0.3697' }, rowsUsed: ['positions:1'] }]
+  const checks = [{ id: 'C1', args: { check: 'lookthrough_exposure', portfolio_id: 'P1' }, result: { exposure: '0.3697' }, rowsUsed: ['positions:1'] }]
   const notes = [{ id: 'N1', kind: 'open_question', text: 'Which source is authoritative?', related_ids: ['C1'] }]
 
   await db!.saveRun({ ...run, status: 'running', turns: 1, toolCalls: 1, events: [e1], state: { executions: executions.slice(0, 1), checks: [], notes: [], findings: [finding('F1')] } })

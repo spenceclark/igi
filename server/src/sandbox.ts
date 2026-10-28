@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { Monty, MontyCrashedError, MontyError, MontyRuntimeError, MontySyntaxError } from '@pydantic/monty'
 
-export const MONTY_VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).dependencies['@pydantic/monty']
+export const MONTY_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@pydantic/monty']
 export const LIMITS = {
   maxMemory: 128 * 1024 * 1024,
   maxFeedDurationSecs: 10,

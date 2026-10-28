@@ -24,8 +24,10 @@ const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 const cairnRef = (prefix: string) =>
   `${prefix}-${[4, 4, 4, 1].map((n) => Array.from({ length: n }, () => ALPHABET[Math.floor(Math.random() * 32)]).join('')).join('-')}`
 const norm = (ref: string) => ref.toUpperCase().replaceAll('-', '')
-const shortLine = (s: unknown) => s == null || (typeof s === 'string' && s.length <= 200 && !/[\x00-\x1f\x7f]/.test(s))
-const bothOrNeither = (a: unknown, b: unknown) => (a == null && b == null) || (typeof a === 'string' && typeof b === 'string')
+const shortLine = (s: unknown): s is string | null | undefined => s == null || (typeof s === 'string' && s.length <= 200 && !/[\x00-\x1f\x7f]/.test(s))
+// A proposed placement is a step and a slot together, or neither.
+const proposal = (stepId: unknown, slotId: unknown) =>
+  stepId == null && slotId == null ? { stepId: null, slotId: null } : typeof stepId === 'string' && typeof slotId === 'string' ? { stepId, slotId } : undefined
 
 type FakeRecord = { summary: RecordSummary; steps: Step[]; procedureId: string; sourceReference: string | null; actedOn: boolean; restricted: boolean }
 type FakeCandidate = {
@@ -105,12 +107,12 @@ export function cairnFake(opts: { key?: string; lookup?: boolean; start?: boolea
   }
 
   function route(method: string, path: string, q: URLSearchParams, headers: Headers, body: Uint8Array): Response {
-    const json = () => {
+    const json = (): Record<string, unknown> => {
       try {
-        return JSON.parse(new TextDecoder().decode(body))
-      } catch {
-        return undefined
-      }
+        const v: unknown = JSON.parse(new TextDecoder().decode(body))
+        if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>
+      } catch {}
+      return {}
     }
     let m: RegExpMatchArray | null
     if (method === 'GET' && path === '/subjects') {
@@ -127,15 +129,13 @@ export function cairnFake(opts: { key?: string; lookup?: boolean; start?: boolea
     }
     if (method === 'POST' && path === '/records') {
       if (!start) return notPermitted('start')
-      const r = json()
-      const errors: Record<string, string[]> = {}
-      if (typeof r?.procedureId !== 'string') errors.procedureId = ['Required.']
-      if (typeof r?.subjectReference !== 'string') errors.subjectReference = ['Required.']
-      if (!shortLine(r?.sourceReference)) errors.sourceReference = ['At most 200 characters on one line.']
-      if (Object.keys(errors).length) return invalid(errors)
-      if (r.procedureId !== procedure.id || norm(r.subjectReference) !== norm(subject.cairnReference)) return problem(404, 'candidate-intake.not-startable', 'Cannot start that record.')
+      const { procedureId, subjectReference, sourceReference } = json()
+      if (typeof procedureId !== 'string') return invalid({ procedureId: ['Required.'] })
+      if (typeof subjectReference !== 'string') return invalid({ subjectReference: ['Required.'] })
+      if (!shortLine(sourceReference)) return invalid({ sourceReference: ['At most 200 characters on one line.'] })
+      if (procedureId !== procedure.id || norm(subjectReference) !== norm(subject.cairnReference)) return problem(404, 'candidate-intake.not-startable', 'Cannot start that record.')
       const untouched = records.filter((x) => !x.actedOn && !x.restricted)
-      const first = r.sourceReference && untouched.find((x) => x.procedureId === r.procedureId && x.sourceReference === r.sourceReference)
+      const first = sourceReference && untouched.find((x) => x.procedureId === procedureId && x.sourceReference === sourceReference)
       if (first) return Response.json({ ...view(first), repeated: true })
       if (untouched.length >= MAX_UNTOUCHED) return problem(409, 'candidate-intake.too-many-untouched-records', 'Too many untouched records.')
       const record: FakeRecord = {
@@ -151,7 +151,7 @@ export function cairnFake(opts: { key?: string; lookup?: boolean; start?: boolea
           ],
         })),
         procedureId: procedure.id,
-        sourceReference: r.sourceReference ?? null,
+        sourceReference: sourceReference ?? null,
         actedOn: false,
         restricted: false,
       }
@@ -173,13 +173,12 @@ export function cairnFake(opts: { key?: string; lookup?: boolean; start?: boolea
     }
     if (method === 'POST' && path === '/candidates/assertion') {
       if (body.length > MAX_JSON_BODY) return problem(413, 'http.413', 'Request body too large.')
-      const a = json()
-      const errors: Record<string, string[]> = {}
-      if (typeof a?.assertionText !== 'string' || !a.assertionText.trim() || a.assertionText.length > 4000) errors.assertionText = ['Required, at most 4000 characters.']
-      if (!shortLine(a?.sourceReference)) errors.sourceReference = ['At most 200 characters on one line.']
-      if (!bothOrNeither(a?.proposedStepId, a?.proposedSlotId)) errors.proposedSlotId = ['Send a step and a slot together.']
-      if (Object.keys(errors).length) return invalid(errors)
-      return submit({ kind: 'assertion', text: a.assertionText, sourceReference: a.sourceReference ?? null, proposedStepId: a.proposedStepId ?? null, proposedSlotId: a.proposedSlotId ?? null }, 'assertion')
+      const { assertionText, sourceReference, proposedStepId, proposedSlotId } = json()
+      if (typeof assertionText !== 'string' || !assertionText.trim() || assertionText.length > 4000) return invalid({ assertionText: ['Required, at most 4000 characters.'] })
+      if (!shortLine(sourceReference)) return invalid({ sourceReference: ['At most 200 characters on one line.'] })
+      const at = proposal(proposedStepId, proposedSlotId)
+      if (!at) return invalid({ proposedSlotId: ['Send a step and a slot together.'] })
+      return submit({ kind: 'assertion', text: assertionText, sourceReference: sourceReference ?? null, proposedStepId: at.stepId, proposedSlotId: at.slotId }, 'assertion')
     }
     if (method === 'POST' && path === '/candidates') {
       const filename = fileName(headers.get('content-disposition'))
@@ -188,13 +187,10 @@ export function cairnFake(opts: { key?: string; lookup?: boolean; start?: boolea
       if (!kind) return problem(400, 'stored-file.file-type.unsupported', 'That type of file is not accepted.')
       const raw = headers.get('cairn-source-reference')
       const sourceReference = raw === null ? null : unescapeLikeCairn(raw)
-      const stepId = headers.get('cairn-proposed-step')
-      const slotId = headers.get('cairn-proposed-slot')
-      const errors: Record<string, string[]> = {}
-      if (!shortLine(sourceReference)) errors.sourceReference = ['At most 200 characters on one line, percent-encoded.']
-      if (!bothOrNeither(stepId, slotId)) errors.proposedSlotId = ['Send a step and a slot together.']
-      if (Object.keys(errors).length) return invalid(errors)
-      return submit({ kind: 'file', filename, bytes: body, sourceReference, proposedStepId: stepId, proposedSlotId: slotId }, kind)
+      if (!shortLine(sourceReference)) return invalid({ sourceReference: ['At most 200 characters on one line, percent-encoded.'] })
+      const at = proposal(headers.get('cairn-proposed-step'), headers.get('cairn-proposed-slot'))
+      if (!at) return invalid({ proposedSlotId: ['Send a step and a slot together.'] })
+      return submit({ kind: 'file', filename, bytes: body, sourceReference, proposedStepId: at.stepId, proposedSlotId: at.slotId }, kind)
     }
     if (method === 'GET' && path === '/candidates') {
       const ids = q.getAll('id')

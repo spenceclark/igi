@@ -19,7 +19,25 @@ const NOTE_KINDS = ['observation', 'hypothesis', 'assumption', 'open_question', 
 export type Execution = { id: string; purpose: string; code: string; ok: boolean; result?: unknown; stdout: string; error?: string; errorType?: string; ms: number; reads: { source: string; returned: number }[] }
 export type Check = { id: string; args: CheckArgs; result: Record<string, unknown>; rowsUsed: string[] }
 export type Note = { id: string; kind: string; text: string; related_ids?: string[] }
-export type Finding = Record<string, unknown> & { id: string; classification: string; proposed_classification: string; validation: { state: string; matched: string[]; unmatched: string[] }; superseded_by?: string }
+// propose_finding's arguments, as its JSON schema below declares them.
+export type FindingArgs = {
+  title: string
+  statement: string
+  classification: string
+  materiality: string
+  portfolios: string[]
+  period_end?: string
+  policy_rule?: { rule_id: string; version: string }
+  cited_rows?: string[]
+  execution_ids?: string[]
+  check_ids?: string[]
+  material_numbers?: { label: string; value: string; check_id: string }[]
+  explanation: string
+  assumptions?: string[]
+  uncertainties?: string[]
+  replaces?: string
+}
+export type Finding = FindingArgs & { id: string; proposed_classification: string; validation: { state: string; matched: string[]; unmatched: string[] }; superseded_by?: string }
 export type RunState = { review: Review; now: Date; executions: Execution[]; checks: Check[]; notes: Note[]; findings: Finding[]; maxPython: number }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
@@ -114,8 +132,12 @@ export const TOOLS = [
   },
 ]
 
-/** Executes one tool call. Returns the JSON result for the model; throws Error with a message for the model. */
-export async function callTool(state: RunState, name: string, args: any): Promise<unknown> {
+/**
+ * Executes one tool call. Returns the JSON result for the model; throws Error with a message for the model.
+ * Each tool's JSON schema declares its argument types; the functions behind them report a value of the
+ * wrong type as an error to Spark rather than acting on it.
+ */
+export async function callTool(state: RunState, name: string, args: Record<string, unknown>): Promise<unknown> {
   const { review } = state
   switch (name) {
     case 'list_sources':
@@ -123,14 +145,14 @@ export async function callTool(state: RunState, name: string, args: any): Promis
     case 'read_data':
       return readData(review, args as ReadArgs)
     case 'get_policy':
-      return getPolicy(review, args)
+      return getPolicy(review, args as Parameters<typeof getPolicy>[1])
     case 'run_python': {
       if (typeof args.code !== 'string' || !args.code.trim()) throw new Error('code is required')
       if (state.executions.length >= state.maxPython) throw new Error(`Python execution budget (${state.maxPython}) is spent; use run_check or conclude`)
       const reads: Execution['reads'] = []
       const host = {
         read_data: hostFunction(['source', 'columns', 'filters', 'sort', 'limit'], (a) => {
-          const r = readData(review, { ...(a as unknown as ReadArgs), limit: (a.limit as number) ?? READ_LIMIT })
+          const r = readData(review, { ...(a as ReadArgs), limit: (a.limit as number | undefined) ?? READ_LIMIT })
           reads.push({ source: r.source, returned: r.returned })
           return r.rows
         }),
@@ -141,19 +163,20 @@ export async function callTool(state: RunState, name: string, args: any): Promis
       return { execution_id: id, ok: r.ok, result: r.result, stdout: r.stdout + (r.stdoutTruncated ? '\n... (output truncated)' : ''), error: r.error }
     }
     case 'run_check': {
-      const { result, rowsUsed } = runCheck(review, args as CheckArgs)
+      const checkArgs = args as CheckArgs
+      const { result, rowsUsed } = runCheck(review, checkArgs)
       const id = `C${state.checks.length + 1}`
-      state.checks.push({ id, args, result, rowsUsed })
+      state.checks.push({ id, args: checkArgs, result, rowsUsed })
       return { check_id: id, ...result }
     }
     case 'record_note': {
-      if (!NOTE_KINDS.includes(args.kind)) throw new Error(`kind must be one of ${NOTE_KINDS.join(', ')}`)
+      if (typeof args.kind !== 'string' || !NOTE_KINDS.includes(args.kind)) throw new Error(`kind must be one of ${NOTE_KINDS.join(', ')}`)
       const id = `N${state.notes.length + 1}`
-      state.notes.push({ id, kind: args.kind, text: String(args.text ?? ''), related_ids: args.related_ids })
+      state.notes.push({ id, kind: args.kind, text: String(args.text ?? ''), related_ids: args.related_ids as string[] | undefined })
       return { note_id: id }
     }
     case 'propose_finding':
-      return proposeFinding(state, args)
+      return proposeFinding(state, args as FindingArgs)
   }
   throw new Error(`unknown tool ${name}`)
 }
@@ -176,14 +199,14 @@ export function figureMatches(stated: string, candidates: string[]): boolean {
   return candidates.some((c) => fmt(dec(c), places) === fmt(value, places))
 }
 
-function proposeFinding(state: RunState, a: any) {
+function proposeFinding(state: RunState, a: FindingArgs) {
   if (!CLASSIFICATIONS[a.classification as keyof typeof CLASSIFICATIONS]) throw new Error(`classification must be one of ${Object.keys(CLASSIFICATIONS).join(', ')}`)
-  for (const f of ['title', 'statement', 'explanation']) if (typeof a[f] !== 'string' || !a[f].trim()) throw new Error(`${f} is required`)
+  for (const f of ['title', 'statement', 'explanation'] as const) if (typeof a[f] !== 'string' || !a[f].trim()) throw new Error(`${f} is required`)
   if (!Array.isArray(a.portfolios) || !a.portfolios.length) throw new Error('portfolios is required')
   const unknown = [
-    ...(a.cited_rows ?? []).filter((r: string) => !rowExists(state.review, r)),
-    ...(a.execution_ids ?? []).filter((x: string) => !state.executions.some((e) => e.id === x)),
-    ...(a.check_ids ?? []).filter((x: string) => !state.checks.some((c) => c.id === x)),
+    ...(a.cited_rows ?? []).filter((r) => !rowExists(state.review, r)),
+    ...(a.execution_ids ?? []).filter((x) => !state.executions.some((e) => e.id === x)),
+    ...(a.check_ids ?? []).filter((x) => !state.checks.some((c) => c.id === x)),
   ]
   if (unknown.length) throw new Error(`unknown citation ids: ${unknown.join(', ')}. Cite only row_ids, execution ids and check ids from this run.`)
   if (!(a.cited_rows?.length || a.check_ids?.length || a.execution_ids?.length)) throw new Error('cite at least one source row, execution or check')

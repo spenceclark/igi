@@ -8,7 +8,16 @@ const ATTEMPTS = 4
 
 export type Usage = { input: number; cached: number; output: number; reasoning: number; costUsd: number }
 
-export function costOf(u: any): Usage {
+// The fields IGI reads. Output items are replayed to the API unchanged, whatever else they carry.
+export type OutputItem =
+  | { type: 'reasoning'; id: string; encrypted_content?: string; summary?: unknown[] }
+  | { type: 'message'; id?: string; role: 'assistant'; content?: { type: string; text?: string }[] }
+  | { type: 'function_call'; id?: string; call_id: string; name: string; arguments: string }
+export type InputItem = OutputItem | { role: 'user'; content: string } | { type: 'function_call_output'; call_id: string; output: string }
+type ApiUsage = { input_tokens?: number; input_tokens_details?: { cached_tokens?: number }; output_tokens?: number; output_tokens_details?: { reasoning_tokens?: number } }
+export type ModelResponse = { status?: string; output?: OutputItem[]; usage?: ApiUsage; incomplete_details?: unknown }
+
+export function costOf(u: ApiUsage | undefined): Usage {
   const input = u?.input_tokens ?? 0
   const cached = u?.input_tokens_details?.cached_tokens ?? 0
   const output = u?.output_tokens ?? 0
@@ -16,7 +25,7 @@ export function costOf(u: any): Usage {
   return { input, cached, output, reasoning: u?.output_tokens_details?.reasoning_tokens ?? 0, costUsd }
 }
 
-export async function respond(body: Record<string, unknown>): Promise<{ response: any; ms: number; attempts: number }> {
+export async function respond(body: Record<string, unknown>): Promise<{ response: ModelResponse; ms: number; attempts: number }> {
   const key = process.env.MODEL_API_KEY
   if (!key) throw new Error('MODEL_API_KEY is not set (server/.env or the environment)')
   const started = performance.now()
@@ -32,7 +41,7 @@ export async function respond(body: Record<string, unknown>): Promise<{ response
         signal: AbortSignal.timeout(300_000),
       })
       const text = await res.text()
-      if (res.ok) return { response: JSON.parse(text), ms: Math.round(performance.now() - started), attempts: attempt }
+      if (res.ok) return { response: JSON.parse(text) as ModelResponse, ms: Math.round(performance.now() - started), attempts: attempt }
       status = res.status
       detail = text.slice(0, 2000)
       retryAfter = Number(res.headers.get('retry-after') ?? 0)

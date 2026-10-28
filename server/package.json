@@ -11,10 +11,15 @@
     "probe:meta": "node --env-file-if-exists=.env scripts/meta-probe.ts",
     "probe:cairn": "node --env-file-if-exists=.env scripts/cairn-probe.ts",
     "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p .",
     "investigate": "node --env-file-if-exists=.env scripts/investigate.ts"
   },
   "dependencies": {
     "@pydantic/monty": "1.4.0",
     "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "7.0.2"
   }
 }

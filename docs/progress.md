@@ -112,6 +112,12 @@ Issues found and resolved:
 - jsonb columns only take an array or string through `sql.json`; a bare array is sent as a Postgres array. Every jsonb value is wrapped.
 - Under Docker Desktop on Windows, connections to `localhost:5434` sometimes timed out when several opened at once (`CONNECT_TIMEOUT` in `loadRun`). The local URLs use `127.0.0.1`; three consecutive test runs passed.
 
+**Strong types**
+
+- `server/tsconfig.json` (strict, erasable syntax only, `verbatimModuleSyntax`) with `@types/node`, and `npm run typecheck` (TypeScript 7.0.2). AGENTS.md now asks for precise types, with `any` only where no type can be written.
+- Every explicit `any` in `server/src` and `test/` replaced: the Responses API items and usage (`model.ts`), the model's tool arguments, which must now be a JSON object (`agent.ts`, `tools.ts`, with `FindingArgs` matching `propose_finding`'s schema), Cairn responses and problem details (`cairn.ts`), the test double's request bodies, and database rows (`db.ts`). `scripts/meta-probe.ts` and `scripts/monty-smoke.ts`, one-off probes, still use `any`.
+- Issues the type check found and resolved: the Cairn client passed a `Uint8Array<ArrayBufferLike>` where `fetch` needs `Uint8Array<ArrayBuffer>`; `saveRun` passed `undefined` for an unfinished run's end time and an unrevised finding's `superseded_by` (the `undefined: null` transform covered it at runtime); the database test's finding had no `explanation`, which `propose_finding` requires. Type check clean; `npm test`: 12 pass. No paid run: the loop's only behavioural change is refusing tool arguments that are not a JSON object.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.
