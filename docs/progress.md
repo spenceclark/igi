@@ -323,6 +323,13 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
 - Not yet:
   - a PDF round trip on real Cairn: the PDF preview, and the plain-text assertion in the Tray and filed views;
   - the deployment image with Chrome and fonts.
+- PDF round trip on real Cairn, built from commit 10ad963:
+  - A record was started for review `dev-01-claims` on the re-published procedure, and two of its findings were submitted: the equity breach and the notification trigger.
+  - All four candidates were placed: two plain-text assertions, and two PDF packages named with the run tag.
+  - Once a person filed them, both findings read back publication-ready. Pack v1 was printed to PDF; its hash verified, and its build and template both named the clean commit.
+  - `submit-pack` sent the PDF to the committee pack step. A person filed it, and the read-back shows it active.
+  - The person checking Cairn found the assertions read cleanly as plain text, in the Tray and once filed, and the PDFs preview inline.
+  - Pass 1 is complete, apart from the deployment image.
 
 **Open**
 
