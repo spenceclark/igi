@@ -9,7 +9,7 @@ import { READ_LIMIT, getPolicy, readData, rowExists, sourceSummary, type ReadArg
 export const CLASSIFICATIONS = {
   potential_exception: 'a limit or policy requirement appears not to be met',
   policy_inconsistency: 'the policy document and the structured rules disagree',
-  outstanding_action: 'a committee action is overdue or unfulfilled',
+  outstanding_action: 'a committee action is overdue, unfulfilled or newly triggered',
   data_quality: 'the data is inconsistent or unreliable',
   missing_information: 'information needed for a conclusion is absent',
   explained_anomaly: 'something looks wrong but has a legitimate explanation, which the finding states',

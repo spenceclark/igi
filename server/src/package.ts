@@ -16,11 +16,13 @@ export const packageFileName = (reviewId: string, f: Pick<FindingRow, 'id' | 've
 
 // potential_exception reads as "potential exception".
 const label = (classification: string) => classification.replaceAll('_', ' ')
+// The validation in words. A finding that states no figures has nothing to validate, which is not a failed check.
+const checked = (v: FindingRow['validation']) => (!v.matched.length && !v.unmatched.length ? 'no figures to validate' : v.state === 'validated' ? 'figures validated' : 'figures not validated')
 
 /** Statement, classification, key figures, policy rule and IGI's ids, in at most 4,000 characters of plain text. */
 export function composeAssertion(f: FindingRow, runId: string, reviewId: string): string {
   const c = f.content
-  const head = `${c.title}\nClassification: ${label(f.classification)} (${f.validation.state}), materiality ${c.materiality}. Portfolios: ${c.portfolios.join(', ')}${c.period_end ? `, period ending ${c.period_end}` : ''}.`
+  const head = `${c.title}\nClassification: ${label(f.classification)} (${checked(f.validation)}), materiality ${c.materiality}. Portfolios: ${c.portfolios.join(', ')}${c.period_end ? `, period ending ${c.period_end}` : ''}.`
   const tail = [
     c.material_numbers?.length ? `Key figures: ${c.material_numbers.map((n) => `${n.label} ${n.value} (check ${n.check_id})`).join('; ')}.` : '',
     c.policy_rule ? `Policy rule: ${c.policy_rule.rule_id}, version ${c.policy_rule.version}.` : '',
