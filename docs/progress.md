@@ -215,6 +215,14 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
   - The notification trigger was classified as an observation again, so the overview would list it with lower-priority observations. The outstanding-action classification read "overdue or unfulfilled", which a newly triggered standing instruction is neither; it now reads "overdue, unfulfilled or newly triggered".
   - The overdue-action finding stated no figures, so its assertion read "outstanding action (unvalidated)", which suggests a failed check. Assertions now say "figures validated", "figures not validated" or "no figures to validate".
   - A new run is needed to pick these up; this run's record was not started.
+- Demo re-run on review `2026-q3` (built from commit 260d775, completed with uncertainties, $0.20). Seven findings, all with figures validated:
+  - the two breaches under allocation and risk;
+  - the overdue replacement and the notification trigger as outstanding actions under committee actions, with a completed action there too;
+  - the fee rise under funds and fees, and the reconciliation under source data.
+  - One open question, whether the notification was given; the findings' uncertainties name the facts the records leave open.
+- The demo record was started on Cairn Dev on the re-published procedure (version 2), for the subject set in `server/.env`. Every review area's step has its assertion and document slots, and the pack step has its document slot.
+- Submitted: 14 candidates, each placed on its area's step. Once a person had filed them, all seven findings read back publication-ready, nothing needed reconciling, and `pack` generated v1. It printed its generator as a development build: an uncommitted note in this log made the tree dirty, though the code was the commit. With the note set aside, v2 was generated from a clean tree and names commit 260d775 for both the analysis and the pack; v1 is superseded.
+- `submit-pack` sent v2 to the record as a candidate document, placed on the committee pack slot. A person filed it, and the read-back shows it as active evidence. The pack is not stale, and all seven findings are still publication-ready. That completes the chain: investigation, validated findings, candidates, human filing, status read-back, reviewed pack, and the pack filed in the procedure.
 - Against real Cairn (read-only): `status dev-01` names F3 v1's assertion, by its evidence reference, for a person to void, `pack dev-01` is blocked by it, and pack v1 is now marked stale for it. The old record is left as it is.
 - Needs a person in Cairn:
   - a subject for the whole review, set in `server/.env`;
