@@ -2,6 +2,7 @@
 // DigitalOcean database once deployed. Never Cairn's database.
 import { readFileSync } from 'node:fs'
 import postgres from 'postgres'
+import type { Budget } from './agent.ts'
 import type { CheckArgs } from './checks.ts'
 import type { Execution, Finding, RunState } from './tools.ts'
 
@@ -10,7 +11,20 @@ export const sql = postgres(process.env.DATABASE_URL ?? LOCAL, { onnotice: () =>
 
 // jsonb takes any JSON value only through sql.json; a bare array or string would be sent as a Postgres array or text.
 // Run state is plain JSON (strings, numbers, booleans, arrays, objects), so the cast holds.
-const json = (v: unknown) => sql.json((v ?? null) as postgres.JSONValue)
+export const json = (v: unknown) => sql.json((v ?? null) as postgres.JSONValue)
+
+export type RunConfig = {
+  model: string
+  reasoning_effort: string
+  igi_commit: string
+  monty_version: string
+  instructions_sha: string
+  tools_sha: string
+  budget: Budget
+  sources: { id: string; file: string; sha256: string }[]
+  memory_enabled: boolean
+  knowledge_ids: string[]
+}
 
 type FindingContent = Omit<Finding, 'id' | 'classification' | 'proposed_classification' | 'validation' | 'superseded_by'>
 export type RunRow = {
@@ -20,7 +34,7 @@ export type RunRow = {
   started_at: Date
   ended_at: Date | null
   status: string
-  config: Record<string, unknown>
+  config: RunConfig
   turns: number
   tool_calls: number
   usage: Record<string, unknown> | null
@@ -56,7 +70,7 @@ export type RunSnapshot = {
   startedAt: string
   endedAt?: string
   status: string
-  config: Record<string, unknown>
+  config: RunConfig
   turns: number
   toolCalls: number
   usage: Record<string, unknown>

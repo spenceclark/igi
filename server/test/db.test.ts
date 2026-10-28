@@ -1,45 +1,16 @@
-// Runs against the local IGI database (npm run db:up), in its own igi_test database; skipped when it isn't running.
+// Saving and loading runs, in the igi_test_db database (test/helpers.ts).
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
-import postgres from 'postgres'
-import type { Finding } from '../src/tools.ts'
+import { CONFIG, finding, resetDatabase, useTestDatabase } from './helpers.ts'
 
-const SERVER = 'postgres://igi:igi@127.0.0.1:5434'
-let skip: string | false = false
-try {
-  const admin = postgres(`${SERVER}/igi`, { onnotice: () => {}, connect_timeout: 3 })
-  await admin`create database igi_test`.catch((e) => {
-    if (e.code !== '42P04') throw e // already exists
-  })
-  await admin.end()
-} catch (e) {
-  skip = `local database not running (npm run db:up): ${(e as Error).message}`
-}
-process.env.DATABASE_URL = `${SERVER}/igi_test`
+const skip = await useTestDatabase('db')
 const db = skip ? undefined : await import('../src/db.ts')
 after(() => db?.sql.end())
 
 async function reset() {
-  await db!.sql`drop schema public cascade`
-  await db!.sql`create schema public`
-  await db!.migrate()
-  await db!.migrate() // the schema applies twice without complaint
+  await resetDatabase(db!)
   await db!.saveReview({ id: 'r1', periodEnd: '2026-09-30' })
 }
-
-const finding = (id: string, more: Partial<Finding> = {}): Finding => ({
-  id,
-  title: `Finding ${id}`,
-  statement: 'Equity look-through exposure is above the limit.',
-  classification: 'potential_exception',
-  proposed_classification: 'potential_exception',
-  materiality: 'high',
-  portfolios: ['P1'],
-  check_ids: ['C1'],
-  explanation: 'The limit is 35%.',
-  validation: { state: 'validated', matched: ['exposure: 36.97% (C1)'], unmatched: [] },
-  ...more,
-})
 
 test('db: a run saved during and after the loop reads back whole', { skip }, async () => {
   await reset()
@@ -48,7 +19,7 @@ test('db: a run saved during and after the loop reads back whole', { skip }, asy
     id: 'run-r1-1',
     reviewId: 'r1',
     startedAt: at,
-    config: { model: 'muse-spark-1.3', memory_enabled: false, knowledge_ids: [] },
+    config: CONFIG,
     usage: { input: 10, costUsd: 0.01 },
     summary: '',
   }
@@ -85,7 +56,7 @@ test('db: a run saved during and after the loop reads back whole', { skip }, asy
 test('db: a ledger entry starts as sending and belongs to one finding version', { skip }, async () => {
   await reset()
   const at = '2026-10-28T09:00:00.000Z'
-  await db!.saveRun({ id: 'run-r1-2', reviewId: 'r1', startedAt: at, status: 'completed', config: {}, turns: 1, toolCalls: 1, usage: {}, summary: '', events: [], state: { executions: [], checks: [], notes: [], findings: [finding('F1')] } })
+  await db!.saveRun({ id: 'run-r1-2', reviewId: 'r1', startedAt: at, status: 'completed', config: CONFIG, turns: 1, toolCalls: 1, usage: {}, summary: '', events: [], state: { executions: [], checks: [], notes: [], findings: [finding('F1')] } })
   const [entry] = await db!.sql`
     insert into cairn_submission (run_id, finding_id, finding_version, kind, payload_sha256, source_reference)
     values ('run-r1-2', 'F1', 1, 'assertion', 'abc', 'IGI review 2026-10, finding F1') returning outcome`

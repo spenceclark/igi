@@ -73,3 +73,6 @@ docs/private/
 
 # Investigation run traces
 server/runs/
+
+# Generated files kept locally until Spaces (server/src/files.ts)
+server/files/

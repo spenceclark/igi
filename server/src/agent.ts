@@ -1,7 +1,7 @@
 // The investigation loop (spec §8): one Spark agent, the seven tools, budgets and a persisted trace.
 import { createHash } from 'node:crypto'
 import { execSync } from 'node:child_process'
-import { saveRun, type TraceEvent } from './db.ts'
+import { saveRun, type RunConfig, type TraceEvent } from './db.ts'
 import { MODEL, costOf, respond, type InputItem } from './model.ts'
 import { MONTY_VERSION } from './sandbox.ts'
 import type { Review } from './sources.ts'
@@ -57,7 +57,7 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
   try {
     commit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim() + (execSync('git status --porcelain', { encoding: 'utf8' }).trim() ? '-dirty' : '')
   } catch {}
-  const config = {
+  const config: RunConfig = {
     model: MODEL,
     reasoning_effort: budget.effort,
     igi_commit: commit,

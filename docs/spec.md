@@ -279,10 +279,9 @@ Creating a review does not touch Cairn. Starting the Cairn record is a separate,
 
 On that action the backend:
 
-1. finds the governance subject by its Cairn reference (`GET /api/intake/v1/subjects`);
-2. lists the procedures startable for it (`GET /api/intake/v1/subjects/{subjectReference}/procedures`) and picks the configured review procedure;
-3. starts the record (`POST /api/intake/v1/records`) with a source reference naming the review, such as `IGI review 2026-10`;
-4. stores the returned Cairn reference and step and slot ids on the `Review`.
+1. lists the procedures startable for the governance subject, by the subject's configured Cairn reference (`GET /api/intake/v1/subjects/{subjectReference}/procedures`, which answers `subject.not-found` for an unknown subject, so no separate subject lookup is needed), and picks the configured review procedure by name;
+2. starts the record (`POST /api/intake/v1/records`) with a source reference naming the review, such as `IGI review 2026-10`;
+3. stores the returned Cairn reference and step and slot ids on the `Review`.
 
 Retries follow Cairn's documented rules (§12.4).
 
@@ -1243,6 +1242,7 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 
 - The submission ledger has an `abandoned` outcome for entries the operator abandons (§12.4).
 - The proof-of-concept trace is saved in IGI's database rather than a JSON file (§17.3).
+- Opening the Cairn record starts from the subject's startable procedures, which also confirms the subject exists, rather than a separate subject lookup (§6.1).
 
 **v0.8, 27 October 2026**
 
