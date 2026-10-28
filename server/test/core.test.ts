@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { dec, div, fmt, mul, sum } from '../src/decimal.ts'
 import { parseCsv, toCsv } from '../src/csv.ts'
 import { importReview } from '../src/sources.ts'
-import { figureMatches } from '../src/tools.ts'
+import { callTool, figureMatches, type RunState } from '../src/tools.ts'
 
 const SCENARIO = new URL('../../fixtures/scenarios/dev-01', import.meta.url)
 
@@ -37,6 +37,17 @@ test('findings: stated figures match check results at the stated precision', () 
   for (const s of ['0.3697', '36.97%', '37%', '£42,148,542', '42,148,542.00', '-0.5pp', '-0.50 percentage points', '-8.70%', '0.42%', '92']) assert.ok(figureMatches(s, c), s)
   // Other units go in the label: '92 days' is not a figure.
   for (const s of ['38%', '0.38', '£42,148,000', '0.5pp', 'about 37%', '8.70%', '42%', '92 days']) assert.ok(!figureMatches(s, c), s)
+})
+
+test('findings: each names the review area that decides its step in Cairn', async () => {
+  const review = importReview(SCENARIO.pathname.replace(/^\/(\w:)/, '$1'), 'dev-01')
+  const state: RunState = { review, now: new Date(), executions: [], checks: [], notes: [], findings: [], maxPython: 0 }
+  await callTool(state, 'run_check', { check: 'holding_concentration', portfolio_id: 'P-CAU' })
+  const args = { title: 'Largest holding', statement: 'Within its limit.', classification: 'observation', materiality: 'low', portfolios: ['P-CAU'], explanation: 'For completeness.', check_ids: ['C1'] }
+  await assert.rejects(callTool(state, 'propose_finding', args), /review_area must be one of source_data, allocation_risk, funds_fees, committee_actions/)
+  await assert.rejects(callTool(state, 'propose_finding', { ...args, review_area: 'fees' }), /review_area must be one of/)
+  await callTool(state, 'propose_finding', { ...args, review_area: 'funds_fees' })
+  assert.deepEqual(state.findings.map((f) => [f.id, f.review_area]), [['F1', 'funds_fees']])
 })
 
 test('decimal: rounding half away from zero, division, formatting', () => {

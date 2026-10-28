@@ -158,6 +158,66 @@ Issues found and resolved:
 - Comments for reading the code: every function in `server/src` has a header saying what it does and why, and the non-obvious blocks (validation rules, decimal rounding, the agent loop's stopping rules, figure matching, the ledger's due items, `distinct on` and the window function, the pack's blockers) have a comment. Only comment lines changed, checked against a copy taken before; type check clean, 16 tests pass.
 - Noticed in the real pack, not yet changed: the portfolio overview's Change column shows a difference of two percentages as "+3.38%" where "pp" is meant; the evidence manifest shows step and slot ids where their names (on the review's stored record) would read better.
 
+**First end-to-end review: fixes** (spec v0.11)
+
+Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
+
+- Root causes confirmed:
+  - **F3's earlier version still active.** The ledger and the status read-back were right: they record and read back every version's items, and showed F3 v1's assertion filed and active. The gap was the pack. `resolveFindings` looks only at each finding's latest version, and §6.7 called a withdrawn earlier version "history" that "neither counts nor blocks". So the pack included F3 v2 while the record still held v1's assertion beside it. F5 differed only because a person happened to void both of its v1 items.
+  - **Misleading comparisons in F3 and F4.** The pack showed every comparison in every check a finding cited. C4 (concentration) is cited for Fenwick's weight, but its comparison is about the largest holding. C15 is cited for Growth's return, but its comparison is the relative-performance tolerance.
+  - **Run status said "uncertainties" while every finding said "None stated."** The run had no notes at all. Its status came only from F6 being "unvalidated", which here meant an observation with no figures to validate. The genuine open matters (whether the notification was given, the remediation plans) were only in Spark's free-text summary.
+  - **F5 placed in allocation and risk.** IGI chose that step from the classification ("observation"); the person filed it where proposed. Classification can't tell a fee matter from an allocation one.
+  - **Wrong primary subject.** An operator setup choice in `server/.env`, not code. The record can't be moved to another subject.
+  - **"Single item only" with four items.** The procedure's author set the slots to one item. Cairn displays that setting but enforces it nowhere, and doesn't return it to agents. So it is a procedure configuration error with misleading wording, not a cardinality defect in submission versus active evidence.
+  - **Build `98157a6-dirty`.** The run recorded a short hash with a dirty marker, and the pack printed it like a release.
+  - **Hashes without sources.** The register's hashes pointed at files in a scenario folder that IGI does not keep.
+- Not confirmed:
+  - a defect in the ledger's version tracking or in the read-back;
+  - a cardinality bug in Cairn;
+  - an IGI cause for the Cairn printout's overlap at a page break. Cairn's browser print view is a convenience view with a print stylesheet that keeps evidence items whole inside nested grids, and the likeliest cause lies there. That is Cairn's, and not changed from this repository.
+- Changes:
+  - **Evidence of excluded versions.** `excludedItems` lists every submitted item of a withdrawn or rejected version with its state. An item still filed and active on the record blocks `generatePack` and makes existing packs stale. The blocker names the evidence, why the version is out, and the reason a person should give when voiding it ("Superseded by IGI finding F3 v2"). IGI voids nothing.
+  - **Tray leftovers.** Items left unfiled in the Tray don't block. `status` and `withdraw` tell the operator to discard them, and filing one later makes the pack stale.
+  - **Excluded versions in the pack.** The appendix lists the excluded versions' items by evidence reference and state, without content.
+  - **Pack content:**
+    - the overview groups findings as policy exceptions, actions outstanding or newly triggered, data quality (when any), and lower-priority observations, and counts open committee actions;
+    - comparisons are shown only on the measure of the rule a finding names, including the same limit for its other portfolios, and not at all for a finding that names no rule;
+    - each comparison reads "Maximum 35.00% | 2026-09-30 | 36.97% | Exceeded by 1.97 percentage points";
+    - an outstanding action shows the committee actions it cites, as the action log records them;
+    - a "Matters the analysis could not resolve" section, labelled unreviewed, holds the latest run's open questions and blockers and any downgraded exception;
+    - the allocation change is in pp, and the manifest names steps and slots;
+    - the note now says that Cairn, not the pack, records whether a package was opened before filing.
+  - **Spark:**
+    - propose_finding requires a `review_area` (source data, allocation and risk, funds and fees, committee actions), which picks the step;
+    - the instructions ask Spark to separate what the records show from what they don't establish, putting the gaps in the finding's uncertainties, and to record each unresolved matter as an open question;
+    - a run completes with uncertainties for open questions, blockers or a downgraded exception, not for an observation with no figures.
+  - **Build and sources.** `igiBuild` records the full commit hash, and the pack calls a dirty build a development build that the repository cannot reproduce; it also records the code that generated it. Sources are kept under `sources/<SHA-256>/<file>` when a run starts and when a pack is generated.
+  - **Cairn operator commands:**
+    - `open` shows the subject's name and starts nothing without `--start`;
+    - `submit-pack` submits the latest non-stale pack as a candidate document for the committee pack step, recorded on the pack before the request and read back by `status`;
+    - `investigate --review <id>` starts a fresh review on the same sources.
+- Tests:
+  - A new pack test on the test double covers:
+    - a revised finding blocked by both v1 items, then by the assertion alone once the package is voided;
+    - a pack after both are voided that references exactly v2's evidence and lists v1's as voided;
+    - a rejected finding whose package was filed, which blocks and makes the pack stale;
+    - withdrawn items left in the Tray, which don't block but get discard advice and make the pack stale when filed later;
+    - placement by review area;
+    - the overview groups, the unresolved section, only the named rule's comparison in words, the committee action instead of comparisons, pp, step names, the build and retained sources;
+    - submitting the pack, filing it and reading it back, and refusal once it is stale.
+  - Also: the earlier pack test now voids v1's evidence before a v2 pack; a core test covers `review_area`.
+  - `npm test`: 18 pass; type check clean.
+- Verification run (review `dev-01-fixup`, completed with uncertainties, $0.22, nothing sent to Cairn). Nine findings:
+  - **Review areas:** the fee finding went to funds and fees, the two overdue or triggered actions and a completed action to committee actions, and a reconciliation observation to source data.
+  - **Uncertainties:** whether the notification was given is now an open question. The equity breach and the notification finding list what the records don't establish as uncertainties. One of these merely repeated the instruction's wording, so the instruction now asks for the specific fact each uncertainty leaves open; the demo run will show whether that holds.
+  - **Preview pack:** a pack rendered from the run, with every finding filed in the test double on a copy of the local database, showed one more misleading table. A completed-action observation that names no rule showed a June largest-holding comparison from a check it cited. So comparisons now need a named rule. The cash finding names one portfolio's rule but covers three, so comparisons match the rule's measure rather than the rule alone, and each shows its date.
+- Against real Cairn (read-only): `status dev-01` names F3 v1's assertion, by its evidence reference, for a person to void, `pack dev-01` is blocked by it, and pack v1 is now marked stale for it. The old record is left as it is.
+- Needs a person in Cairn:
+  - a subject for the whole review, set in `server/.env`;
+  - the review procedure re-published with multiple-item assertion and document slots, and, if wanted, additional subjects allowed;
+  - for the fresh demo record, meaningful void reasons.
+- Whether Cairn should enforce its single-item setting, return it to agents, or reword the label is a Cairn product decision, outside this repository. So is the print layout.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.

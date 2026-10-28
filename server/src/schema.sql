@@ -108,7 +108,8 @@ create table if not exists cairn_submission (
 );
 
 -- Committee packs (§13). Each holds its immutable reviewed snapshot (§13.2) and the hashes of the snapshot and the
--- HTML file. A later version supersedes every earlier one; only the stale columns ever change (§13.3).
+-- HTML file. A later version supersedes every earlier one; only the stale columns (§13.3) and the pack's own
+-- submission to Cairn (§13.5) ever change.
 create table if not exists committee_pack (
   review_id text not null references review,
   version int not null,
@@ -122,3 +123,5 @@ create table if not exists committee_pack (
   primary key (review_id, version),
   check ((stale_at is null) = (stale_reason is null))
 );
+-- The pack submitted to Cairn as a candidate document: outcome, candidate id and the latest read-back (§13.5).
+alter table committee_pack add column if not exists submission jsonb;

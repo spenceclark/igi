@@ -120,9 +120,11 @@ test('ledger: submit, read back and follow findings through Cairn', { skip }, as
   assert.deepEqual(ledger.placementGaps(record), [])
   const withoutDocuments = record.steps.slice(1).map((s) => ({ ...s, slots: s.slots.filter((x) => !x.allowedKinds.includes('document')) }))
   assert.deepEqual(ledger.placementGaps({ record: record.record, steps: withoutDocuments }), [
-    'no step "Source data and reconciliation" (for data_quality, missing_information)',
-    'step "Portfolio allocation and risk review" has no document slot (for potential_exception, policy_inconsistency, explained_anomaly, observation)',
-    'step "Historical decisions and outstanding actions" has no document slot (for outstanding_action)',
+    'no step "Source data and reconciliation" (for findings in source data)',
+    'step "Portfolio allocation and risk review" has no document slot (for findings in allocation risk)',
+    'step "Fund, manager and fee oversight" has no document slot (for findings in funds fees)',
+    'step "Historical decisions and outstanding actions" has no document slot (for findings in committee actions)',
+    'step "Committee pack preparation" has no document slot (for the committee pack)',
   ])
 
   await assert.rejects(ledger.submitFinding(cairn, ref('F4')), /revised as F1/)

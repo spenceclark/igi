@@ -1,5 +1,5 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.10
+## Product & Technical Specification — v0.11
 
 **Date:** 28 October 2026  
 **Status:** Working implementation specification. Gates A and B passed on 27 October; remaining IGI MVP work is in progress. Cross-review memory is a priority stretch goal (§6.9), not part of the MVP and not a prerequisite for the gates.  
@@ -353,15 +353,17 @@ IGI polls the candidate-status operation for candidates in its ledger and shows 
 | Incomplete | Any other combination: the file discarded, either item voided or unverifiable, filed on another record, or an item missing because its submission was refused or abandoned | Blocks |
 | Withdrawn | The operator withdrew it in IGI, with a reason | Excluded and counted |
 
-When more than one description fits, the first in this order applies: withdrawn, rejected, publication-ready, incomplete, pending. For example, a discarded assertion makes a finding rejected whatever its file's state. Each finding counts once, by its latest version: an earlier version, withdrawn before the matter was put forward again, is history and neither counts nor blocks. A finding Spark revised within its run counts only through its revision.
+When more than one description fits, the first in this order applies: withdrawn, rejected, publication-ready, incomplete, pending. For example, a discarded assertion makes a finding rejected whatever its file's state. Each finding counts once, by its latest version: an earlier version, withdrawn before the matter was put forward again, is history and does not count. A finding Spark revised within its run counts only through its revision.
 
-**Withdrawal.** The operator can withdraw any finding version in IGI, submitted or not, and must give a reason. IGI records when and why. Withdrawal is final for that version and changes nothing in Cairn: a person discards any of its candidates still unfiled there. To put the matter forward again, the operator submits a new version. Withdrawal is how a pending, incomplete or voided finding stops blocking the pack. It is the operator's decision about what IGI puts forward, not a review decision, which belongs to Cairn.
+**Evidence of excluded versions.** The record must not hold active evidence of a version the pack leaves out. Any item of a withdrawn version, earlier versions included, or of a rejected one, that is filed and active on the review's record blocks a final pack and makes an existing pack stale (§13.3). IGI cannot void evidence and never tries: the blocker names the evidence reference, and a person voids it in Cairn, giving a reason such as "Superseded by IGI finding F3 v2". An item still unfiled in the Tray does not block; IGI lists it for a person to discard there, and if someone files it later the pack goes stale. The pack's appendix lists the excluded versions' items by evidence reference and state, without content.
+
+**Withdrawal.** The operator can withdraw any finding version in IGI, submitted or not, and must give a reason. IGI records when and why. Withdrawal is final for that version and changes nothing in Cairn: a person discards any of its candidates still unfiled there, and voids any of its items already filed. To put the matter forward again, the operator submits a new version. Withdrawal is how a pending, incomplete or voided finding stops blocking the pack. It is the operator's decision about what IGI puts forward, not a review decision, which belongs to Cairn.
 
 IGI shows status and links to Cairn. It offers no accept or reject controls.
 
 ### 6.8 Generate the committee pack [New IGI]
 
-Immediately before generation, IGI makes a fresh status call and resolves every finding's state (§6.7). A **final committee pack** is generated only when no submitted finding is pending or incomplete. Its immutable `ReviewedSnapshot` (§13.2) holds the publication-ready findings. Rejected and withdrawn findings are excluded, and the pack states how many there were. The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data. IGI also confirms that the review's source files still have the hashes the latest analysis run recorded; if any differs, it generates nothing and asks for a new investigation.
+Immediately before generation, IGI makes a fresh status call and resolves every finding's state (§6.7). A **final committee pack** is generated only when no submitted finding is pending or incomplete, and the record holds no active evidence of a withdrawn or rejected version (§6.7). Its immutable `ReviewedSnapshot` (§13.2) holds the publication-ready findings. Rejected and withdrawn findings are excluded, and the pack states how many there were. The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data. IGI also confirms that the review's source files still have the hashes the latest analysis run recorded; if any differs, it generates nothing and asks for a new investigation.
 
 While any submitted finding is pending or incomplete, IGI lists what remains to be done and generates no final pack. It may show a preview, clearly marked incomplete, in which no unaccepted finding is presented as reviewed.
 
@@ -463,7 +465,7 @@ The **MVP retains seven tools covering five capabilities**. Every core tool is r
 | Execute Python | `run_python` | Runs Python in Monty (§9). The code can call read-only data functions with the same scope and bounds as `read_data`. Returns values, standard output and errors. |
 | Trusted calculations | `run_check` | Runs a named, tested deterministic calculation, such as weight reconciliation, look-through exposure against a limit, concentration, fee change between periods, or performance recomputation. The catalogue is in the tool description; Spark decides whether and when to call them. |
 | Record work | `record_note` | Records an observation, hypothesis, assumption, open question or missing-information blocker. |
-| | `propose_finding` | Creates a structured finding: statement, classification, portfolios, policy rule and version, cited source rows, execution and check ids, explanation, assumptions and uncertainties. |
+| | `propose_finding` | Creates a structured finding: statement, classification, review area (source data; allocation and risk; funds, managers and fees; committee actions), portfolios, policy rule and version, cited source rows, execution and check ids, explanation, assumptions and uncertainties. The review area decides the procedure step its evidence is proposed for (§12.3). |
 
 **Memory tools [Stretch].** The priority slice adds one tool, `propose_knowledge`, which writes a **proposal**, never approved knowledge; the operator confirms it in IGI. Clarification requests use `record_note`'s existing `open_question` kind, so they need no new tool. The later stretch adds `search_history`, which searches approved knowledge, review handovers, earlier notes and the index of generated files, and returns only bounded, source-attributed results. No unrestricted object-store tool or cross-agent access is implied.
 
@@ -480,6 +482,8 @@ The system prompt asks Spark to:
 - explain why something is or is not material;
 - investigate contradictory evidence;
 - identify results that depend on uncertain assumptions;
+- keep what the records show apart from what they do not establish, since the absence of a record proves nothing either way, and put such gaps in the finding's uncertainties;
+- record each matter it could not resolve as an open question, saying what it affects;
 - cite the sources, executions and checks behind each finding;
 - avoid inventing absent values or unsupported explanations;
 - stop when coverage is sufficient or the budget runs out.
@@ -490,7 +494,7 @@ Spark cannot change investment data or anything in Cairn.
 
 Each run has configured limits on model tokens and estimated cost, wall-clock time, tool calls, Python executions, and rows and bytes returned by data tools.
 
-A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion. An open question does not end a run: Spark records it and carries on, and the run ends `completed_with_uncertainties` with its open questions listed. `blocked` means nothing else in the review could proceed. In the memory stretch, an operator's answer starts a new run with context rebuilt from IGI's records and a reference to the earlier run, never a resumed Meta Responses conversation (§8.8).
+A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion. An open question does not end a run: Spark records it and carries on, and the run ends `completed_with_uncertainties` with its open questions listed. A run also ends `completed_with_uncertainties` when a potential exception it proposed was stored as an observation because its figures were not validated; an observation with no figures to validate is not an uncertainty. `blocked` means nothing else in the review could proceed. In the memory stretch, an operator's answer starts a new run with context rebuilt from IGI's records and a reference to the earlier run, never a resumed Meta Responses conversation (§8.8).
 
 ### 8.5 Investigation trace
 
@@ -687,7 +691,7 @@ Suggested layout, created only as needed:
 
 ### 10.3 Generated files and previous outputs [New IGI; storage MVP, index and retrieval Stretch]
 
-**MVP.** IGI stores uploaded source files, investigation packages and committee packs in its private Spaces bucket. Each file is referenced, with its SHA-256 hash, from the row that already owns it: `SourceDocument` for a source, the finding version for its investigation package (the ledger records the hash of what was submitted), and `CommitteePack` for a pack. Python source and output stay in the database with their `CodeExecution`. Generated files are immutable; a change produces a new version.
+**MVP.** IGI stores uploaded source files, investigation packages and committee packs in its private Spaces bucket. Each file is referenced, with its SHA-256 hash, from the row that already owns it: `SourceDocument` for a source, the finding version for its investigation package (the ledger records the hash of what was submitted), and `CommitteePack` for a pack. Python source and output stay in the database with their `CodeExecution`. Generated files are immutable; a change produces a new version. Until uploads exist, a review's source files are copied unchanged to the file store under `sources/<SHA-256>/<file>` when a run starts and when a pack is generated, so every hash a run or pack records refers to bytes IGI holds.
 
 The run's transient working files may be short-lived. The final pack, its accepted-evidence snapshot, submitted investigation packages and reproducibility data must survive the run. The original IGI file remains available under IGI permissions even if a copy was submitted to Cairn.
 
@@ -754,14 +758,14 @@ Cairn's MCP server offers the same operations except files. IGI uses HTTP only.
 
 Configured by a Workspace Admin in the chosen Cairn environment:
 
-- a subject for the fictional firm's investment-governance programme;
+- a subject for the fictional firm's investment-governance programme. The record is started for it and cannot be moved to another, so it must be the subject the whole review covers, not one portfolio or fund; `open` shows the subject's name and starts nothing without `--start`. Portfolio subjects can be linked to the record as additional subjects by a person in Cairn, where the procedure allows additional subjects; the intake API cannot add them;
 - a published procedure for the periodic committee preparation cycle, with steps:
   1. Source data and reconciliation
   2. Portfolio allocation and risk review
   3. Fund, manager and fee oversight
   4. Historical decisions and outstanding actions
   5. Committee pack preparation
-- on each step, an assertion slot for finding statements and a document slot for investigation packages;
+- on steps 1 to 4, an assertion slot for finding statements and a document slot for investigation packages, each allowing multiple items, since one step holds several findings; on step 5, a document slot for the committee pack (§13.5). Cairn labels a slot set to one item "single item only" but does not enforce it, and the intake API does not report the setting, so single-item slots mislead the reader. Changing it needs a new published version of the procedure, which applies to records started afterwards;
 - an agent named "IGI" with "Look up records" and "Start records" permissions, linked to the demo operator's Cairn user, who must hold a role that can start records;
 - an agent key stored only in the IGI backend's environment. Keys expire (90 days by default).
 
@@ -775,7 +779,7 @@ For each submitted finding:
 - **Investigation package file:** methodology, input references and hashes, executed code, outputs, check results, assumptions and uncertainties.
 - **Required pair:** both the assertion and investigation-package file are mandatory for every submitted finding to be publication-ready. Their candidate IDs are correlated by IGI finding ID and version in the submission ledger; no single item stands in for the other.
 - **Source reference:** short and readable by the people filing it, such as `IGI review 2026-10, finding F-07`.
-- **Placement:** the step and slot the backend maps the finding's classification to, using the ids from the review's record.
+- **Placement:** the step for the finding's review area (source data, allocation and risk, funds and fees, and committee actions are steps 1 to 4), in its first slot that takes the item's kind, using the ids from the review's record. A finding stored before review areas existed is placed by its classification. A person may file the evidence elsewhere; IGI reads back where it was filed and never overrides it.
 
 Cairn attributes every submission to the IGI agent; the backend submits under that identity.
 
@@ -912,30 +916,45 @@ Built from a status read-back made immediately before generation. It records:
 - policy rule versions;
 - execution and check references;
 - the content the pack shows for each finding: statement, explanation, figures, policy comparisons and uncertainties, all contained in its accepted assertion and package;
-- the portfolio figures, policy rules in force and open committee actions the pack shows, computed from the hashed sources at generation;
+- the portfolio figures, policy rules in force and open committee actions the pack shows, computed from the hashed sources at generation, and the file store key of each retained source (§10.3);
+- for each outstanding-action finding, the committee actions it cites, as the action log records them;
+- the matters the latest run left unresolved: its open questions and blockers, and any potential exception it stored as an observation;
+- every submitted item of a withdrawn or rejected version, with its evidence reference and state, without content (§6.7);
+- the record's step and slot names;
+- the IGI code version that generated the pack and the one the analysis ran on, each a full commit hash, marked as a development build when the working tree had uncommitted changes;
 - the generation time and a hash of the snapshot, taken over its JSON with keys sorted so that it verifies after storage.
 
 Only publication-ready findings enter the reviewed snapshot (§6.7, §12.5). While any submitted finding is pending or incomplete, no final pack is generated and IGI lists what blocks it; a preview, if shown, is visibly labelled and presents no conclusion as accepted. The snapshot is immutable, and the pack is rendered from it alone, so the stored HTML can be reproduced from the snapshot.
 
 ### 13.3 Stale and superseded packs
 
-IGI re-checks **both constituent evidence items for every included finding** whenever it polls and when the pack is opened. If either is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. Withdrawing a finding the pack includes also marks it stale. A stale pack is never rewritten. A newly generated pack supersedes it, and both remain in the pack history.
+IGI re-checks **both constituent evidence items for every included finding** whenever it polls and when the pack is opened. If either is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. Withdrawing a finding the pack includes also marks it stale, and so does any item of a withdrawn or rejected version becoming, or remaining, filed and active on the record (§6.7). A stale pack is never rewritten. A newly generated pack supersedes it, and both remain in the pack history.
 
 ### 13.4 Pack content
 
 An HTML pre-meeting pack, exported to PDF with the browser's print function:
 
-**Executive overview:** review period and portfolios; data coverage and validation status; number and type of potential exceptions; how many submitted findings were not accepted in Cairn and how many the operator withdrew; areas needing committee attention.
+**Executive overview:** review period and portfolios; data coverage and validation status; whether the analysis left matters unresolved; number and type of accepted findings; how many submitted findings were not accepted in Cairn and how many the operator withdrew; how many previous committee actions are not recorded as completed; and the accepted findings grouped, each linked to its article, as policy exceptions, actions outstanding or newly triggered, data quality and missing information (when there are any), and lower-priority observations.
 
 **Portfolio overview:** each portfolio's look-through allocation at the last two period ends and the change, with bars, computed by IGI's deterministic checks from the hashed sources and labelled as source data, not evidence filed in Cairn.
 
-**Material findings:** the potential issue, the applicable policy rule and version, supporting calculations and comparisons, explanation, the uncertainties it states as points for committee discussion, evidence references. IGI adds no discussion points of its own.
+**Material findings:** the potential issue, the applicable policy rule and version, supporting figures, explanation, the uncertainties it states as points for committee discussion, evidence references. IGI adds no discussion points of its own. Policy comparisons are shown only where they support the finding: those on the measure of the rule it names, which covers the same limit in other portfolios the finding concerns. A finding that names no rule shows none, since a cited check's comparisons may concern another measure. An outstanding action shows instead the committee actions it cites, as the action log records them. Each comparison states the limit, the date, the actual figure and the margin in percentage points ("Exceeded by 1.97 percentage points"); the exact decimals stay in the investigation package.
+
+**Matters the analysis could not resolve:** the latest run's open questions and blockers and any potential exception it stored as an observation, as the agent recorded them, labelled as not reviewed in Cairn. Shown only when there are any; each finding's own uncertainties stay with the finding.
 
 **Outstanding governance items:** data validation issues, how many findings from the latest analysis run were not submitted to Cairn (as a count, without content), and previous committee actions not recorded as completed.
 
-**Appendix:** data source register, policy rules in force, analysis methods, calculation and investigation references, accepted evidence manifest, generation and version information.
+**Appendix:** data source register, policy rules in force, analysis methods, calculation and investigation references, accepted evidence manifest with step and slot names, evidence of earlier, withdrawn or rejected versions, generation and version information.
 
-The material findings section contains only publication-ready findings, with both the accepted assertion and the accepted investigation package; no unaccepted supporting calculation may be represented as reviewed. Rejected and withdrawn findings appear only as counts, never with their content. The pack never invents recommendations, market commentary or committee decisions. A pack with no findings is a valid result **only under the conditions in §6.8**: clean findings and validated coverage are worth reporting.
+The pack states that filing accepts evidence and is not approval, and that Cairn, not the pack, records whether each investigation package was opened before it was filed.
+
+The material findings section contains only publication-ready findings, with both the accepted assertion and the accepted investigation package; no unaccepted supporting calculation may be represented as reviewed. Rejected and withdrawn findings appear only as counts, never with their content. The pack never invents recommendations, market commentary or committee decisions. A pack with no findings is a valid result **only under the conditions in §6.8**: clean findings and validated coverage are worth reporting. Rejected and withdrawn findings' evidence references and states may appear in the appendix, never their content.
+
+### 13.5 Filing the pack in Cairn
+
+The operator can submit the latest pack, while it is not stale, to Cairn as a candidate document proposed for the committee pack step's document slot. The attempt is recorded on the pack before the request, as in the ledger (§12.4), and an uncertain attempt is resent only when the operator asks. A person files or discards it in Cairn; IGI reads back its state with the other candidates. Cairn accepts HTML as a document but offers it for download only, with an active-content caution.
+
+IGI completes no step, accepts no evidence and finishes no procedure. Whether steps with no IGI evidence, such as source reconciliation, are completed, skipped or given evidence of their own is a decision for the people running the procedure. The record's Reports section holds only Cairn's own generated reports, so the pack never appears there.
 
 ## 14. User Interface [New IGI]
 
@@ -1239,6 +1258,15 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.11, 28 October 2026**
+
+- The record must hold no active evidence of a withdrawn or rejected version: such evidence blocks a pack and makes an existing one stale, and a person voids it in Cairn (§6.7, §6.8, §13.3).
+- Findings name a review area, which decides their step; a fee finding goes to the fund and fee step (§8.2, §12.3).
+- Required setup: a subject for the whole review, slots allowing multiple items, and a document slot for the pack (§12.2).
+- A run completes with uncertainties for open questions, blockers or an unvalidated exception, not for an observation with no figures; Spark records unresolved matters as open questions (§8.3, §8.4).
+- Pack content: grouped overview, unresolved matters, only the comparisons that support a finding, in percentage points, committee actions for outstanding actions, excluded versions' evidence, step and slot names, code versions, retained sources (§10.3, §13.2, §13.4).
+- The pack can be submitted to Cairn as a candidate document (§13.5).
 
 **v0.10, 28 October 2026**
 

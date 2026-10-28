@@ -7,6 +7,7 @@ import { getFile, putFile } from './files.ts'
 import { composeAssertion, composePackage, packageFileName, sourceReference } from './package.ts'
 
 // The two items submitted for every finding version: its assertion and its investigation package file.
+// (The committee pack's own submission is recorded on the pack: see submitPack in committee-pack.ts.)
 export type Kind = 'assertion' | 'file'
 // A finding version: findings are numbered per run, and a finding put forward again gets a new version.
 export type FindingRef = { runId: string; id: string; version: number }
@@ -34,27 +35,41 @@ export type LedgerEntry = {
   created_at: Date
 }
 
-// The step each classification's evidence is proposed for, by the step names in §12.2. A step missing from
-// the record means no proposal: the candidate waits in Cairn's Tray unplaced.
-const STEP_FOR: Record<string, string> = {
-  data_quality: 'Source data and reconciliation',
-  missing_information: 'Source data and reconciliation',
-  potential_exception: 'Portfolio allocation and risk review',
-  policy_inconsistency: 'Portfolio allocation and risk review',
-  explained_anomaly: 'Portfolio allocation and risk review',
-  observation: 'Portfolio allocation and risk review',
-  outstanding_action: 'Historical decisions and outstanding actions',
+// The step each review area's evidence is proposed for, by the step names in §12.2, and the step for the committee
+// pack itself. A step missing from the record means no proposal: the candidate waits in Cairn's Tray unplaced.
+export const AREA_STEP: Record<string, string> = {
+  source_data: 'Source data and reconciliation',
+  allocation_risk: 'Portfolio allocation and risk review',
+  funds_fees: 'Fund, manager and fee oversight',
+  committee_actions: 'Historical decisions and outstanding actions',
 }
+export const PACK_STEP = 'Committee pack preparation'
+// The step by classification, for findings recorded before they named a review area.
+const STEP_FOR: Record<string, string> = {
+  data_quality: AREA_STEP.source_data,
+  missing_information: AREA_STEP.source_data,
+  potential_exception: AREA_STEP.allocation_risk,
+  policy_inconsistency: AREA_STEP.allocation_risk,
+  explained_anomaly: AREA_STEP.allocation_risk,
+  observation: AREA_STEP.allocation_risk,
+  outstanding_action: AREA_STEP.committee_actions,
+}
+
+/** The step a finding's evidence is proposed for: its review area's, or its classification's when it names none. */
+export const stepFor = (f: Pick<FindingRow, 'classification' | 'content'>) => (f.content.review_area ? AREA_STEP[f.content.review_area] : STEP_FOR[f.classification])
 
 const sha256 = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex')
 
-/** Where the record doesn't fit that mapping, with the classifications whose evidence would wait in the Tray. */
+/** Where the record doesn't fit those steps: what would wait in the Tray unplaced, and why. */
 export function placementGaps(record: RecordSteps): string[] {
-  return [...new Set(Object.values(STEP_FOR))].flatMap((name) => {
+  const needs: [string, ('assertion' | 'document')[], string][] = [
+    ...Object.entries(AREA_STEP).map(([area, name]): [string, ('assertion' | 'document')[], string] => [name, ['assertion', 'document'], `findings in ${area.replaceAll('_', ' ')}`]),
+    [PACK_STEP, ['document'], 'the committee pack'],
+  ]
+  return needs.flatMap(([name, kinds, what]) => {
     const step = record.steps.find((s) => s.name === name)
-    const gaps = step ? (['assertion', 'document'] as const).filter((k) => !step.slots.some((s) => s.allowedKinds.includes(k))).map((k) => `step "${name}" has no ${k} slot`) : [`no step "${name}"`]
-    const classifications = Object.keys(STEP_FOR).filter((c) => STEP_FOR[c] === name)
-    return gaps.map((g) => `${g} (for ${classifications.join(', ')})`)
+    const gaps = step ? kinds.filter((k) => !step.slots.some((s) => s.allowedKinds.includes(k))).map((k) => `step "${name}" has no ${k} slot`) : [`no step "${name}"`]
+    return gaps.map((g) => `${g} (for ${what})`)
   })
 }
 
@@ -109,11 +124,11 @@ export async function submitFinding(cairn: Cairn, ref: FindingRef): Promise<Ledg
   if (!record) throw new Error(`open the Cairn record for review ${reviewId} first`)
 
   // An item is due when its latest attempt doesn't exist, was refused or was abandoned. Both items are proposed
-  // for the step mapped to the classification, each in the step's first slot that takes its kind.
+  // for the step of the finding's review area, each in the step's first slot that takes its kind.
   const entries = await ledgerEntries(ref)
   const latest = (kind: Kind) => entries.filter((e) => e.kind === kind).at(-1)
   const due = (['assertion', 'file'] as const).filter((k) => [undefined, 'refused', 'abandoned'].includes(latest(k)?.outcome))
-  const step = record.steps.find((s) => s.name === STEP_FOR[f.classification])
+  const step = record.steps.find((s) => s.name === stepFor(f))
   const sourceRef = sourceReference(reviewId, f)
 
   for (const kind of due) {

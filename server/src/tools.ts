@@ -16,16 +16,26 @@ export const CLASSIFICATIONS = {
   observation: 'noteworthy, but needs no action or is unresolved',
 }
 const NOTE_KINDS = ['observation', 'hypothesis', 'assumption', 'open_question', 'blocker']
+// The areas of the review a finding can belong to, as the governed procedure divides it; the area decides which
+// step of the Cairn record its evidence is proposed for (AREA_STEP in ledger.ts).
+export const REVIEW_AREAS = {
+  source_data: 'the source data: its completeness, reconciliation and quality',
+  allocation_risk: 'portfolio allocation and risk: exposures, limits, concentration and performance',
+  funds_fees: 'the funds and managers used, and their charges',
+  committee_actions: 'previous committee decisions, and whether their actions were carried out',
+}
 
 // What the tools leave in the run's record: Python executions (X1, X2...), checks (C1...) and notes (N1...).
 export type Execution = { id: string; purpose: string; code: string; ok: boolean; result?: unknown; stdout: string; error?: string; errorType?: string; ms: number; reads: { source: string; returned: number }[] }
 export type Check = { id: string; args: CheckArgs; result: Record<string, unknown>; rowsUsed: string[] }
 export type Note = { id: string; kind: string; text: string; related_ids?: string[] }
-// propose_finding's arguments, as its JSON schema below declares them.
+// propose_finding's arguments, as its JSON schema below declares them. review_area is required of the agent, but
+// findings stored before it existed have none.
 export type FindingArgs = {
   title: string
   statement: string
   classification: string
+  review_area?: string
   materiality: string
   portfolios: string[]
   period_end?: string
@@ -103,7 +113,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'record_note',
-    description: 'Records an observation, hypothesis, assumption, open question or blocker (missing information that stops a conclusion) in the investigation record. Returns its id (N...).',
+    description: 'Records an observation, hypothesis, assumption, open question (a matter you could not resolve, and what it affects) or blocker (missing information that stops a conclusion) in the investigation record. Returns its id (N...).',
     parameters: obj({ kind: { type: 'string', enum: NOTE_KINDS }, text: str('The note'), related_ids: strs('Row, execution, check or finding ids it relates to') }, ['kind', 'text']),
   },
   {
@@ -112,6 +122,7 @@ export const TOOLS = [
     description: [
       'Proposes a finding for human review. Returns its id (F...), its stored classification and its validation state.',
       `Classifications: ${Object.entries(CLASSIFICATIONS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
+      `review_area is the part of the review the finding belongs to: ${Object.entries(REVIEW_AREAS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
       'Cite the source row_ids, execution ids (X...) and check ids (C...) from this run that support it; unknown ids are rejected.',
       'material_numbers lists every figure the finding relies on, each with the id of a run_check result containing it. State each figure as a reader would see it, with its unit: a fraction of 0.1234 as 12.34%, a change of 0.005 as 0.5pp, an amount as £1,000,000; put any other unit in the label. A potential_exception whose material numbers are not all found in the cited check results, at the precision stated, is stored as an unvalidated observation.',
       'To revise an earlier finding, propose the new version with replaces set to the earlier id.',
@@ -121,6 +132,7 @@ export const TOOLS = [
         title: str('Short title'),
         statement: str('The finding, stated plainly'),
         classification: { type: 'string', enum: Object.keys(CLASSIFICATIONS) },
+        review_area: { type: 'string', enum: Object.keys(REVIEW_AREAS) },
         materiality: { type: 'string', enum: ['high', 'medium', 'low'] },
         portfolios: strs('Portfolio ids concerned'),
         period_end: str('ISO date the finding concerns'),
@@ -131,10 +143,10 @@ export const TOOLS = [
         material_numbers: { type: 'array', items: obj({ label: str('What the number is'), value: str('The figure with its unit, e.g. 12.34%, -0.5pp or £1,000,000'), check_id: str('run_check id containing it') }, ['label', 'value', 'check_id']) },
         explanation: str('Why it matters or does not, and the reasoning behind it'),
         assumptions: strs('Assumptions the finding depends on'),
-        uncertainties: strs('What remains uncertain'),
+        uncertainties: strs('What remains uncertain, including anything the records do not establish'),
         replaces: str('Id of an earlier finding this one revises'),
       },
-      ['title', 'statement', 'classification', 'materiality', 'portfolios', 'explanation'],
+      ['title', 'statement', 'classification', 'review_area', 'materiality', 'portfolios', 'explanation'],
     ),
   },
 ]
@@ -219,6 +231,7 @@ export function figureMatches(stated: string, candidates: string[]): boolean {
  */
 function proposeFinding(state: RunState, a: FindingArgs) {
   if (!CLASSIFICATIONS[a.classification as keyof typeof CLASSIFICATIONS]) throw new Error(`classification must be one of ${Object.keys(CLASSIFICATIONS).join(', ')}`)
+  if (!REVIEW_AREAS[a.review_area as keyof typeof REVIEW_AREAS]) throw new Error(`review_area must be one of ${Object.keys(REVIEW_AREAS).join(', ')}`)
   for (const f of ['title', 'statement', 'explanation'] as const) if (typeof a[f] !== 'string' || !a[f].trim()) throw new Error(`${f} is required`)
   if (!Array.isArray(a.portfolios) || !a.portfolios.length) throw new Error('portfolios is required')
   const unknown = [
