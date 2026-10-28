@@ -17,6 +17,7 @@ export type InputItem = OutputItem | { role: 'user'; content: string } | { type:
 type ApiUsage = { input_tokens?: number; input_tokens_details?: { cached_tokens?: number }; output_tokens?: number; output_tokens_details?: { reasoning_tokens?: number } }
 export type ModelResponse = { status?: string; output?: OutputItem[]; usage?: ApiUsage; incomplete_details?: unknown }
 
+/** Token counts and cost in USD for one response; cached input tokens are charged at the cached rate. */
 export function costOf(u: ApiUsage | undefined): Usage {
   const input = u?.input_tokens ?? 0
   const cached = u?.input_tokens_details?.cached_tokens ?? 0
@@ -25,6 +26,11 @@ export function costOf(u: ApiUsage | undefined): Usage {
   return { input, cached, output, reasoning: u?.output_tokens_details?.reasoning_tokens ?? 0, costUsd }
 }
 
+/**
+ * Sends one Responses API request and returns the parsed response, with the time taken and the attempts made.
+ * Nothing is stored on Meta's side; the reasoning comes back encrypted for the caller to send again next turn.
+ * Rate limits, server errors and network failures are retried up to ATTEMPTS times; any other error throws.
+ */
 export async function respond(body: Record<string, unknown>): Promise<{ response: ModelResponse; ms: number; attempts: number }> {
   const key = process.env.MODEL_API_KEY
   if (!key) throw new Error('MODEL_API_KEY is not set (server/.env or the environment)')
@@ -49,6 +55,7 @@ export async function respond(body: Record<string, unknown>): Promise<{ response
       detail = (e as Error).message // network error or timeout: retry
     }
     if ((status && !RETRYABLE.has(status)) || attempt >= ATTEMPTS) throw new Error(`model request failed (HTTP ${status || 'none'}, attempt ${attempt}): ${detail}`)
+    // Wait as Retry-After asks, otherwise 2, 4 or 8 seconds plus up to half a second of jitter.
     await new Promise((r) => setTimeout(r, retryAfter ? retryAfter * 1000 : 2 ** attempt * 1000 + Math.random() * 500))
   }
 }

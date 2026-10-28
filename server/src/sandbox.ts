@@ -3,7 +3,9 @@
 import { readFileSync } from 'node:fs'
 import { Monty, MontyCrashedError, MontyError, MontyRuntimeError, MontySyntaxError } from '@pydantic/monty'
 
+// The Monty version pinned in package.json, recorded with each run.
 export const MONTY_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@pydantic/monty']
+// What Monty allows each execution: memory, time, recursion depth and host-function calls, and no sleeping.
 export const LIMITS = {
   maxMemory: 128 * 1024 * 1024,
   maxFeedDurationSecs: 10,
@@ -12,11 +14,15 @@ export const LIMITS = {
   maxSuspensions: 200, // every host-function call is a suspension
   maxTotalSleepSecs: 0,
 }
+// Up to two worker processes serve every execution; output and error text sent back to the model are capped.
 const POOL = { minProcesses: 1, maxProcesses: 2, checkoutTimeout: 30, requestTimeout: 30 }
 const STDOUT_CHARS = 8_000
 const ERROR_CHARS = 4_000
 
+// Created on first use.
 let pool: Promise<Monty> | undefined
+
+/** Shuts the worker pool down so the process can exit; the next execution starts a new pool. */
 export async function closeSandbox() {
   if (pool) await (await pool).close()
   pool = undefined
@@ -43,6 +49,7 @@ export function normalise(v: unknown): unknown {
  */
 export function hostFunction(names: string[], fn: (args: Record<string, unknown>) => unknown) {
   return (...raw: unknown[]) => {
+    // Split off the keyword arguments, then match positional ones to `names` in order.
     const last = raw.at(-1)
     const kwargs = last && typeof last === 'object' && !(last instanceof Map) && !Array.isArray(last) && Object.getPrototypeOf(last) === null ? (raw.pop() as Record<string, unknown>) : {}
     if (raw.length > names.length) throw new Error(`too many positional arguments; parameters are ${names.join(', ')}`)
@@ -56,13 +63,20 @@ export function hostFunction(names: string[], fn: (args: Record<string, unknown>
   }
 }
 
+// ok with the value of the last expression, or the error. workerLost means the worker crashed or timed out.
 export type PythonResult = { ok: boolean; result?: unknown; stdout: string; stdoutTruncated: boolean; error?: string; errorType?: string; workerLost?: boolean; ms: number }
 
+/**
+ * Runs Python in a fresh Monty session with the host functions it may call (read_data). The session's clock is
+ * fixed at `now` and its random seed at 0, so a rerun gives the same output. Python's errors come back as a
+ * result with ok false, for the agent to fix; anything that isn't a Monty error throws.
+ */
 export async function runPython(code: string, host: Record<string, unknown>, now: Date): Promise<PythonResult> {
   pool ??= Monty.create(POOL)
   const started = performance.now()
   let stdout = ''
   let stdoutTruncated = false
+  // Collects printed output up to STDOUT_CHARS and notes when more was cut.
   const printCallback = (_stream: 'stdout' | 'stderr', text: string) => {
     if (stdout.length + text.length > STDOUT_CHARS) {
       stdout += text.slice(0, STDOUT_CHARS - stdout.length)
@@ -76,6 +90,7 @@ export async function runPython(code: string, host: Record<string, unknown>, now
     return { ok: true, result, stdout, stdoutTruncated, ms: ms() }
   } catch (e) {
     if (!(e instanceof MontyError)) throw e
+    // Syntax and runtime errors get Python's traceback; a crash or a limit gets its type and message.
     const text = e instanceof MontyRuntimeError || e instanceof MontySyntaxError ? e.display('traceback') : e.display('type-msg')
     return {
       ok: false,

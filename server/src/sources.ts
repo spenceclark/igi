@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import { parseCsv } from './csv.ts'
 import { abs, dec, div, fmt, isDec, sum } from './decimal.ts'
 
+// A CSV row keyed by column name, plus its row_id (`<source>:<n>`).
 export type Row = Record<string, string>
+// One `## ` section of the policy document; its id is the heading's leading number.
 export type Section = { id: string; heading: string; text: string }
+// One source file as imported: its rows (or sections, for the policy document) and its validation issues.
 export type Source = {
   id: string
   file: string
@@ -19,6 +22,9 @@ export type Source = {
 }
 export type Review = { id: string; periodEnd: string; periods: string[]; sources: Source[] }
 
+// The CSV kinds IGI recognises, keyed by source id. A CSV is recognised by its exact header (these field names,
+// in this order). `key` lists the columns that must be unique together, `optional` the ones that may be blank,
+// and `fields` describes each column for the agent (list_sources shows them).
 type Kind = { description: string; key: string[]; optional?: string[]; fields: Record<string, string> }
 const FRACTION = 'decimal string, fraction of 1 (0.2500 = 25%)'
 const KINDS: Record<string, Kind> = {
@@ -80,18 +86,26 @@ const KINDS: Record<string, Kind> = {
     },
   },
 }
+// Columns validated by type: decimal strings (all but market values must be fractions of 1), ISO dates, and
+// instrument ids shaped like an ISIN (two letters, nine letters or digits, a digit; the check digit isn't verified).
 const DECIMALS = ['market_value_gbp', 'reported_weight', 'exposure_weight', 'portfolio_return', 'benchmark_return', 'ongoing_charge', 'threshold']
 const FRACTIONS = DECIMALS.filter((f) => f !== 'market_value_gbp')
 const DATES = ['period_end', 'as_of', 'effective_from', 'effective_to', 'meeting_date', 'due_date']
 const INSTRUMENT_ID = /^[A-Z]{2}[A-Z0-9]{9}\d$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/**
+ * Reads every file in a review's source folder and returns the review: each CSV recognised by its header, the
+ * Markdown policy document split into sections, and every file's SHA-256. The review's periods are the distinct
+ * position dates; the latest is the period end. Validation issues are attached to each source, never fixed.
+ */
 export function importReview(dir: string, id: string): Review {
   const sources: Source[] = []
   for (const file of readdirSync(dir).sort()) {
     const bytes = readFileSync(join(dir, file))
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const text = bytes.toString('utf8')
+    // The policy document: each `## ` heading starts a section, whose id is its leading number (`## 3. Limits` is 3).
     if (file.endsWith('.md')) {
       const sections = text.split(/^## /m).slice(1).map((s) => {
         const [heading, ...body] = s.split('\n')
@@ -101,6 +115,7 @@ export function importReview(dir: string, id: string): Review {
       sources.push({ id: 'policy_document', file, sha256, description: `Policy document: ${title}. Human-readable; the structured rules are authoritative for limits.`, fields: {}, rows: [], sections, issues: [] })
       continue
     }
+    // A CSV's kind is the one whose fields match its header exactly; anything else is kept with an issue.
     const [header, ...data] = parseCsv(text)
     const kind = Object.entries(KINDS).find(([, k]) => Object.keys(k.fields).join() === header.join())
     if (!kind) {
@@ -108,6 +123,7 @@ export function importReview(dir: string, id: string): Review {
       continue
     }
     const [kid, k] = kind
+    // Each row gets the id findings cite: `<source>:<n>`, counting data rows from 1 (the header isn't counted).
     const rows = data.map((r, i) => ({ row_id: `${kid}:${i + 1}`, ...Object.fromEntries(header.map((h, j) => [h, (r[j] ?? '').trim()])) }))
     sources.push({ id: kid, file, sha256, description: k.description, fields: k.fields, rows, issues: [] })
   }
@@ -117,6 +133,7 @@ export function importReview(dir: string, id: string): Review {
   return review
 }
 
+/** The rows of one source by id, or none when the review lacks it. */
 function table(sources: Source[], id: string): Row[] {
   return sources.find((s) => s.id === id)?.rows ?? []
 }
@@ -125,6 +142,8 @@ function table(sources: Source[], id: string): Row[] {
 function validate(review: Review) {
   const get = (id: string) => table(review.sources, id)
   const portfolios = new Set(get('portfolios').map((r) => r.portfolio_id))
+  // Row checks, source by source: required fields present, keys unique, ids and dates well formed, decimals parse,
+  // fractions within -1..1 (a value like 25 suggests a percentage), and position dates among the review periods.
   for (const s of review.sources) {
     const k = KINDS[s.id]
     if (!k) continue
@@ -148,6 +167,9 @@ function validate(review: Review) {
     }
   }
 
+  // Cross-source checks for each portfolio and period: positions exist; reported weights sum to 1 (within 0.001)
+  // and match each holding's share of market value (within 0.0005); every fund held has look-through exposures
+  // summing to 1; and a performance row exists.
   const positions = review.sources.find((s) => s.id === 'positions')
   const lookthrough = get('lookthrough')
   for (const period of review.periods)
@@ -170,6 +192,7 @@ function validate(review: Review) {
       const performance = review.sources.find((s) => s.id === 'performance')
       if (performance && !performance.rows.some((r) => r.portfolio_id === p && r.period_end === period)) performance.issues.push(`no performance for ${p} at ${period}`)
     }
+  // Every portfolio needs at least one policy rule in force at the period end, its own or one for ALL.
   const rules = review.sources.find((s) => s.id === 'policy_rules')
   for (const p of portfolios) {
     const applicable = (rules?.rows ?? []).filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && r.effective_from <= review.periodEnd && (!r.effective_to || r.effective_to >= review.periodEnd))
@@ -179,12 +202,14 @@ function validate(review: Review) {
 
 // ---- Bounded reads, shared by the read_data tool and the sandbox's read_data host function ----
 
+// At most READ_LIMIT rows and about READ_BYTES of JSON per read, so one call can't flood the model's context.
 export const READ_LIMIT = 200
 const READ_BYTES = 60_000
 const OPS = ['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'in', 'contains'] as const
 export type Filter = { column: string; op: (typeof OPS)[number]; value: string | string[] }
 export type ReadArgs = { source: string; columns?: string[]; filters?: Filter[]; sort?: { column: string; descending?: boolean }[]; limit?: number }
 
+/** Orders two cell values: as numbers when both are decimals, otherwise as text (ISO dates sort correctly as text). */
 function compare(a: string, b: string): number {
   if (isDec(a) && isDec(b)) {
     const d = dec(a) - dec(b)
@@ -193,7 +218,11 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
 }
 
-/** Throws Error with a message meant for the agent when the request is invalid. */
+/**
+ * One bounded read of a tabular source: filters, then sorts, then returns up to `limit` rows (default 50, at most
+ * READ_LIMIT), stopping early at READ_BYTES. It says how many rows matched and whether it truncated, so the agent
+ * knows to narrow its query. Throws Error with a message meant for the agent when the request is invalid.
+ */
 export function readData(review: Review, args: ReadArgs) {
   const s = review.sources.find((x) => x.id === args.source)
   if (!s || !s.rows.length) throw new Error(`unknown tabular source "${args.source}"; available: ${review.sources.filter((x) => x.rows.length).map((x) => x.id).join(', ')}`)
@@ -203,6 +232,8 @@ export function readData(review: Review, args: ReadArgs) {
   for (const f of args.filters ?? []) if (!OPS.includes(f.op)) throw new Error(`unknown filter op "${f.op}"; use one of ${OPS.join(', ')}`)
   const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 50)), READ_LIMIT)
 
+  // Every filter must hold. `in` takes a list, `contains` is a case-insensitive substring match, and the
+  // comparisons go through compare(), so numbers compare as numbers.
   let rows = s.rows.filter((r) =>
     (args.filters ?? []).every((f) => {
       const v = r[f.column] ?? ''
@@ -214,8 +245,11 @@ export function readData(review: Review, args: ReadArgs) {
       return { eq: c === 0, ne: c !== 0, lt: c < 0, lte: c <= 0, gt: c > 0, gte: c >= 0 }[f.op]
     }),
   )
+  // Several sort keys: sorting by the last key first, then each earlier one, works because Array.sort is stable.
   for (const o of [...(args.sort ?? [])].reverse()) rows = [...rows].sort((a, b) => compare(a[o.column] ?? '', b[o.column] ?? '') * (o.descending ? -1 : 1))
+  // row_id always comes first, so the agent can cite what it read.
   const cols = args.columns?.length ? ['row_id', ...args.columns.filter((c) => c !== 'row_id')] : known
+  // Stop before the row that would take the JSON past READ_BYTES.
   const out: Row[] = []
   let bytes = 0
   for (const r of rows.slice(0, limit)) {
@@ -227,12 +261,17 @@ export function readData(review: Review, args: ReadArgs) {
   return { source: s.id, matching: rows.length, returned: out.length, truncated: out.length < rows.length, rows: out }
 }
 
+/** Whether a cited row id (`<source>:<n>`) names a real row; propose_finding rejects citations that don't. */
 export function rowExists(review: Review, rowId: string): boolean {
   const [source] = rowId.split(':')
   return !!review.sources.find((s) => s.id === source)?.rows.some((r) => r.row_id === rowId)
 }
 
-/** Policy document sections and structured rules, optionally for one portfolio and date. */
+/**
+ * Policy document sections and structured rules, optionally for one portfolio and date (the get_policy tool).
+ * A section matches by its number or by part of its heading; rules for ALL portfolios are always included, and a
+ * date keeps only the rule versions in force on it.
+ */
 export function getPolicy(review: Review, args: { section?: string; portfolio_id?: string; as_of?: string }) {
   const doc = review.sources.find((s) => s.id === 'policy_document')
   const sections = (doc?.sections ?? []).filter((s) => !args.section || s.id === args.section || s.heading.toLowerCase().includes(args.section.toLowerCase()))
@@ -245,6 +284,7 @@ export function getPolicy(review: Review, args: { section?: string; portfolio_id
   return { document: { file: doc?.file, sections }, rules }
 }
 
+/** What list_sources returns for each source: file, hash, description, size, sections or columns, and issues. */
 export function sourceSummary(review: Review) {
   return review.sources.map((s) => ({
     source: s.id,

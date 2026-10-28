@@ -5,6 +5,7 @@ import { CHECK_CATALOGUE, runCheck, type CheckArgs } from './checks.ts'
 import { LIMITS, hostFunction, runPython } from './sandbox.ts'
 import { READ_LIMIT, getPolicy, readData, rowExists, sourceSummary, type ReadArgs, type Review } from './sources.ts'
 
+// Finding classifications and what each means; propose_finding's description lists them for the agent.
 export const CLASSIFICATIONS = {
   potential_exception: 'a limit or policy requirement appears not to be met',
   policy_inconsistency: 'the policy document and the structured rules disagree',
@@ -16,6 +17,7 @@ export const CLASSIFICATIONS = {
 }
 const NOTE_KINDS = ['observation', 'hypothesis', 'assumption', 'open_question', 'blocker']
 
+// What the tools leave in the run's record: Python executions (X1, X2...), checks (C1...) and notes (N1...).
 export type Execution = { id: string; purpose: string; code: string; ok: boolean; result?: unknown; stdout: string; error?: string; errorType?: string; ms: number; reads: { source: string; returned: number }[] }
 export type Check = { id: string; args: CheckArgs; result: Record<string, unknown>; rowsUsed: string[] }
 export type Note = { id: string; kind: string; text: string; related_ids?: string[] }
@@ -37,13 +39,18 @@ export type FindingArgs = {
   uncertainties?: string[]
   replaces?: string
 }
+// A stored finding: the agent's arguments plus its id (F1...), the classification the agent proposed, the
+// validation outcome, and the id of the finding that revised it, if any.
 export type Finding = FindingArgs & { id: string; proposed_classification: string; validation: { state: string; matched: string[]; unmatched: string[] }; superseded_by?: string }
+// Everything one investigation run builds up, held in memory and saved with the run.
 export type RunState = { review: Review; now: Date; executions: Execution[]; checks: Check[]; notes: Note[]; findings: Finding[]; maxPython: number }
 
+// Builders for the tools' JSON schemas. An object rejects properties it doesn't declare.
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
 const str = (description: string) => ({ type: 'string', description })
 const strs = (description: string) => ({ type: 'array', items: { type: 'string' }, description })
 
+// The tool definitions sent with every model request: name, description and JSON schema for each.
 export const TOOLS = [
   {
     type: 'function',
@@ -106,7 +113,7 @@ export const TOOLS = [
       'Proposes a finding for human review. Returns its id (F...), its stored classification and its validation state.',
       `Classifications: ${Object.entries(CLASSIFICATIONS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
       'Cite the source row_ids, execution ids (X...) and check ids (C...) from this run that support it; unknown ids are rejected.',
-      'material_numbers lists every figure the finding relies on, each with the id of a run_check result containing it (as a fraction, percentage or amount). A potential_exception whose material numbers are not all found in the cited check results is stored as an unvalidated observation.',
+      'material_numbers lists every figure the finding relies on, each with the id of a run_check result containing it. State each figure as a reader would see it, with its unit: a fraction of 0.1234 as 12.34%, a change of 0.005 as 0.5pp, an amount as £1,000,000; put any other unit in the label. A potential_exception whose material numbers are not all found in the cited check results, at the precision stated, is stored as an unvalidated observation.',
       'To revise an earlier finding, propose the new version with replaces set to the earlier id.',
     ].join('\n'),
     parameters: obj(
@@ -121,7 +128,7 @@ export const TOOLS = [
         cited_rows: strs('Source row_ids'),
         execution_ids: strs('run_python execution ids'),
         check_ids: strs('run_check ids'),
-        material_numbers: { type: 'array', items: obj({ label: str('What the number is'), value: str('The number as stated, e.g. 0.1234, 12.34% or 1,000,000'), check_id: str('run_check id containing it') }, ['label', 'value', 'check_id']) },
+        material_numbers: { type: 'array', items: obj({ label: str('What the number is'), value: str('The figure with its unit, e.g. 12.34%, -0.5pp or £1,000,000'), check_id: str('run_check id containing it') }, ['label', 'value', 'check_id']) },
         explanation: str('Why it matters or does not, and the reasoning behind it'),
         assumptions: strs('Assumptions the finding depends on'),
         uncertainties: strs('What remains uncertain'),
@@ -149,6 +156,8 @@ export async function callTool(state: RunState, name: string, args: Record<strin
     case 'run_python': {
       if (typeof args.code !== 'string' || !args.code.trim()) throw new Error('code is required')
       if (state.executions.length >= state.maxPython) throw new Error(`Python execution budget (${state.maxPython}) is spent; use run_check or conclude`)
+      // read_data inside Python is the same bounded read as the tool, with the largest limit by default; each
+      // call is logged on the execution.
       const reads: Execution['reads'] = []
       const host = {
         read_data: hostFunction(['source', 'columns', 'filters', 'sort', 'limit'], (a) => {
@@ -181,6 +190,7 @@ export async function callTool(state: RunState, name: string, args: Record<strin
   throw new Error(`unknown tool ${name}`)
 }
 
+/** Every decimal string anywhere in a check result, inside nested objects and arrays too. */
 function numbersIn(v: unknown, out: string[] = []): string[] {
   if (typeof v === 'string' && isDec(v)) out.push(v)
   else if (Array.isArray(v)) v.forEach((x) => numbersIn(x, out))
@@ -195,10 +205,18 @@ export function figureMatches(stated: string, candidates: string[]): boolean {
   const raw = `${m[1]}${m[2].replaceAll(',', '')}`
   if (!isDec(raw)) return false
   const dp = (raw.split('.')[1] ?? '').length
+  // A % or pp figure is divided by 100 and gains two places, so 12.34% compares as 0.1234. Both sides are
+  // rounded to the stated precision first: 12% also matches 0.1234.
   const [value, places] = m[3] ? [dec(raw) / 100n, dp + 2] : [dec(raw), dp]
   return candidates.some((c) => fmt(dec(c), places) === fmt(value, places))
 }
 
+/**
+ * Checks and stores a proposed finding. Its citations must exist in this run. Each material number must appear in
+ * the result of the check it cites, at the precision stated. A potential exception with a number unmatched, or no
+ * numbers at all, is stored as an unvalidated observation, and the message tells the agent how to put it right.
+ * Proposing with `replaces` marks the earlier finding as superseded by this one.
+ */
 function proposeFinding(state: RunState, a: FindingArgs) {
   if (!CLASSIFICATIONS[a.classification as keyof typeof CLASSIFICATIONS]) throw new Error(`classification must be one of ${Object.keys(CLASSIFICATIONS).join(', ')}`)
   for (const f of ['title', 'statement', 'explanation'] as const) if (typeof a[f] !== 'string' || !a[f].trim()) throw new Error(`${f} is required`)
@@ -213,6 +231,7 @@ function proposeFinding(state: RunState, a: FindingArgs) {
   const replaced = a.replaces ? state.findings.find((f) => f.id === a.replaces) : undefined
   if (a.replaces && !replaced) throw new Error(`unknown finding ${a.replaces}`)
 
+  // Validation: each material number against the numbers in its cited check's result.
   const matched: string[] = []
   const unmatched: string[] = []
   for (const n of a.material_numbers ?? []) {

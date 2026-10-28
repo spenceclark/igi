@@ -6,9 +6,15 @@ import { json, loadRun, sql, type FindingRow } from './db.ts'
 import { getFile, putFile } from './files.ts'
 import { composeAssertion, composePackage, packageFileName, sourceReference } from './package.ts'
 
+// The two items submitted for every finding version: its assertion and its investigation package file.
 export type Kind = 'assertion' | 'file'
+// A finding version: findings are numbered per run, and a finding put forward again gets a new version.
 export type FindingRef = { runId: string; id: string; version: number }
+// What the last status read-back said about a candidate; not-reported when Cairn left it out of the answer.
 type ReadBack = Pick<CandidateStatus, 'status' | 'evidence'> | { status: 'not-reported'; evidence: null }
+// One submission attempt (§12.4), written before its request is sent. outcome: sending until Cairn answers, then
+// submitted (with the candidate id and placement), refused (with the error code) or uncertain; abandoned when the
+// operator gives up on an uncertain one.
 export type LedgerEntry = {
   id: string
   run_id: string
@@ -42,6 +48,16 @@ const STEP_FOR: Record<string, string> = {
 
 const sha256 = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex')
 
+/** Where the record doesn't fit that mapping, with the classifications whose evidence would wait in the Tray. */
+export function placementGaps(record: RecordSteps): string[] {
+  return [...new Set(Object.values(STEP_FOR))].flatMap((name) => {
+    const step = record.steps.find((s) => s.name === name)
+    const gaps = step ? (['assertion', 'document'] as const).filter((k) => !step.slots.some((s) => s.allowedKinds.includes(k))).map((k) => `step "${name}" has no ${k} slot`) : [`no step "${name}"`]
+    const classifications = Object.keys(STEP_FOR).filter((c) => STEP_FOR[c] === name)
+    return gaps.map((g) => `${g} (for ${classifications.join(', ')})`)
+  })
+}
+
 /** Starts the review's Cairn record, or returns the one already started. */
 export async function openRecord(cairn: Cairn, reviewId: string, config: { subjectReference: string; procedureName: string }): Promise<RecordSteps> {
   const [review] = await sql<{ cairn_record: RecordSteps | null }[]>`select cairn_record from review where id = ${reviewId}`
@@ -58,6 +74,7 @@ export async function openRecord(cairn: Cairn, reviewId: string, config: { subje
   return record
 }
 
+/** Every submission attempt for a finding version, oldest first. */
 export const ledgerEntries = (f: FindingRef) =>
   sql<LedgerEntry[]>`select * from cairn_submission where run_id = ${f.runId} and finding_id = ${f.id} and finding_version = ${f.version} order by created_at, id`
 
@@ -91,6 +108,8 @@ export async function submitFinding(cairn: Cairn, ref: FindingRef): Promise<Ledg
   const record = review?.cairn_record
   if (!record) throw new Error(`open the Cairn record for review ${reviewId} first`)
 
+  // An item is due when its latest attempt doesn't exist, was refused or was abandoned. Both items are proposed
+  // for the step mapped to the classification, each in the step's first slot that takes its kind.
   const entries = await ledgerEntries(ref)
   const latest = (kind: Kind) => entries.filter((e) => e.kind === kind).at(-1)
   const due = (['assertion', 'file'] as const).filter((k) => [undefined, 'refused', 'abandoned'].includes(latest(k)?.outcome))
@@ -134,6 +153,7 @@ export async function refreshStatus(cairn: Cairn, reviewId: string) {
     where r.review_id = ${reviewId} and s.outcome = 'submitted'`
   if (!entries.length) return
   const items = new Map((await cairn.getCandidateStatus(entries.map((e) => e.candidate_id))).map((i) => [i.candidateId.toLowerCase(), i]))
+  // Ids are compared in lower case. A candidate Cairn left out of its answer is recorded as not-reported.
   for (const e of entries) {
     const i = items.get(e.candidate_id.toLowerCase())
     const status: ReadBack = i ? { status: i.status, evidence: i.evidence } : { status: 'not-reported', evidence: null }
@@ -141,6 +161,7 @@ export async function refreshStatus(cairn: Cairn, reviewId: string) {
   }
 }
 
+// An item's state: its ledger outcome until Cairn has a candidate, then what the read-back says about it.
 export type ItemState = LedgerEntry['outcome'] | 'not-sent' | 'not-read' | 'unfiled' | 'discarded' | 'not-reported' | 'accepted' | 'voided' | 'unverifiable' | 'other-record'
 export type FindingState = 'not_submitted' | 'pending' | 'publication_ready' | 'rejected' | 'incomplete' | 'withdrawn'
 

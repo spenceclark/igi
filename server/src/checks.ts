@@ -4,8 +4,10 @@ import { abs, dec, div, fmt, mul, sum, type Dec } from './decimal.ts'
 import type { Review, Row } from './sources.ts'
 
 export type CheckArgs = { check: string; portfolio_id: string; period_end?: string; asset_class?: string; from_period?: string; to_period?: string }
-type Comparison = { rule_id: string; version: string; limit_type: string; threshold: string; value: string; status: 'within' | 'breach'; margin: string; document_clause: string }
+// One rule compared with a computed value. margin is the room left before the limit; negative means a breach.
+export type Comparison = { rule_id: string; version: string; limit_type: string; threshold: string; value: string; status: 'within' | 'breach'; margin: string; document_clause: string }
 
+// The checks run_check offers: each one's arguments and what it returns. The agent reads these texts.
 export const CHECK_CATALOGUE: Record<string, string> = {
   weight_reconciliation: 'portfolio_id, period_end: total market value, each holding\'s computed weight against its reported weight, and the sum of reported weights.',
   lookthrough_exposure: 'portfolio_id, period_end, asset_class: look-through exposure to the asset class, each holding\'s contribution, coverage, and comparison with the applicable rules for that exposure.',
@@ -14,9 +16,12 @@ export const CHECK_CATALOGUE: Record<string, string> = {
   fee_change: 'portfolio_id, from_period, to_period: ongoing charge of each fund held at to_period, at both periods, and the change.',
 }
 
+// The rows of one source by id, or none.
 const rowsOf = (review: Review, id: string): Row[] => review.sources.find((s) => s.id === id)?.rows ?? []
+// Figures leave a check as decimal strings to 4 places.
 const f4 = (x: Dec) => fmt(x, 4)
 
+/** A portfolio's positions at a period, each with its weight computed from market values. Throws if there are none. */
 function holdings(review: Review, portfolio: string, period: string) {
   const rows = rowsOf(review, 'positions').filter((r) => r.portfolio_id === portfolio && r.period_end === period)
   if (!rows.length) throw new Error(`no positions for ${portfolio} at ${period}`)
@@ -24,6 +29,11 @@ function holdings(review: Review, portfolio: string, period: string) {
   return { total, rows: rows.map((r) => ({ row: r, weight: div(dec(r.market_value_gbp), total) })) }
 }
 
+/**
+ * Compares a value with every rule for the metric in force for the portfolio (or ALL) at the period. The margin
+ * is threshold minus value for a max and value minus threshold for a min, so a negative margin is a breach.
+ * Returns the comparisons and the rule rows used.
+ */
 function compareRules(review: Review, portfolio: string, period: string, metric: string, value: Dec) {
   const rules = rowsOf(review, 'policy_rules').filter(
     (r) => r.metric === metric && (r.portfolio_id === portfolio || r.portfolio_id === 'ALL') && r.effective_from <= period && (!r.effective_to || r.effective_to >= period),
@@ -35,11 +45,15 @@ function compareRules(review: Review, portfolio: string, period: string, metric:
   return { comparisons, ruleRows: rules.map((r) => r.row_id) }
 }
 
-/** Returns the result and the source rows it used. Throws Error with a message for the agent on bad input. */
+/**
+ * Runs one catalogue check for a portfolio, at the period given or the review's period end. Returns the result
+ * and every source row it depends on, the rules compared included. Throws Error with a message for the agent on bad input.
+ */
 export function runCheck(review: Review, a: CheckArgs): { result: Record<string, unknown>; rowsUsed: string[] } {
   if (!CHECK_CATALOGUE[a.check]) throw new Error(`unknown check "${a.check}"; available: ${Object.keys(CHECK_CATALOGUE).join(', ')}`)
   const period = a.period_end ?? review.periodEnd
   switch (a.check) {
+    // Each holding's weight from market values against its reported weight, and the sum of reported weights.
     case 'weight_reconciliation': {
       const h = holdings(review, a.portfolio_id, period)
       const lines = h.rows.map(({ row, weight }) => ({ row_id: row.row_id, instrument_name: row.instrument_name, computed_weight: f4(weight), reported_weight: row.reported_weight, difference: f4(dec(row.reported_weight) - weight) }))
@@ -48,6 +62,9 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         rowsUsed: h.rows.map((x) => x.row.row_id),
       }
     }
+    // Exposure to an asset class: the sum over holdings of weight times the fund's exposure to that class at the
+    // same date. A fund without look-through data at that date contributes nothing and is listed as missing.
+    // The rules compared are those for the metric `<asset class>_exposure`.
     case 'lookthrough_exposure': {
       if (!a.asset_class) throw new Error('lookthrough_exposure needs asset_class')
       const h = holdings(review, a.portfolio_id, period)
@@ -70,6 +87,7 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         rowsUsed: [...used, ...ruleRows],
       }
     }
+    // Holdings by computed weight, largest first; the largest is compared with the single-holding rule.
     case 'holding_concentration': {
       const h = holdings(review, a.portfolio_id, period)
       const sorted = [...h.rows].sort((x, y) => (y.weight > x.weight ? 1 : y.weight < x.weight ? -1 : 0))
@@ -79,6 +97,7 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         rowsUsed: [...h.rows.map((x) => x.row.row_id), ...ruleRows],
       }
     }
+    // Portfolio minus benchmark return for the quarter; the tolerance rule limits its absolute size.
     case 'relative_performance': {
       const p = rowsOf(review, 'performance').find((r) => r.portfolio_id === a.portfolio_id && r.period_end === period)
       if (!p) throw new Error(`no performance for ${a.portfolio_id} at ${period}`)
@@ -89,6 +108,8 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         rowsUsed: [p.row_id, ...ruleRows],
       }
     }
+    // Ongoing charge of each fund held at to_period, at both periods (by default the last two). A charge missing
+    // at either period gives null rather than an error.
     case 'fee_change': {
       const from = a.from_period ?? review.periods.at(-2)
       const to = a.to_period ?? review.periodEnd

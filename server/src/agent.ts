@@ -7,6 +7,7 @@ import { MONTY_VERSION } from './sandbox.ts'
 import type { Review } from './sources.ts'
 import { TOOLS, callTool, type RunState } from './tools.ts'
 
+// The system instructions sent with every request. Their hash goes in each run's config, so a change shows there.
 export const INSTRUCTIONS = `You are an investment governance analyst preparing the quarterly review for an Investment Committee. Investigate the data you are given, using your tools, and report what the Committee needs to know, substantiated by evidence.
 
 How to work:
@@ -23,12 +24,16 @@ How to work:
 
 You cannot change any data. A person reviews your findings before anything is done with them.`
 
+// Limits on one run; the loop stops at the first one reached. maxOutputTokens caps a single response, and effort
+// is the model's reasoning effort.
 export type Budget = { maxTurns: number; maxToolCalls: number; maxPython: number; maxCostUsd: number; maxMinutes: number; maxOutputTokens: number; effort: string }
 export const DEFAULT_BUDGET: Budget = { maxTurns: 60, maxToolCalls: 150, maxPython: 40, maxCostUsd: 3, maxMinutes: 25, maxOutputTokens: 16000, effort: 'medium' }
 
+// A short hash for the run config, and a shortened string for the console log.
 const sha = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 16)
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
+/** The first user message: the review period, portfolios, sources, policy sections, validation issue count and budget. */
 function brief(review: Review, budget: Budget): string {
   const portfolios = review.sources.find((s) => s.id === 'portfolios')?.rows ?? []
   const doc = review.sources.find((s) => s.id === 'policy_document')
@@ -46,17 +51,24 @@ function brief(review: Review, budget: Budget): string {
 
 export type RunResult = { runId: string; status: string; state: RunState; usage: { input: number; cached: number; output: number; reasoning: number; costUsd: number }; turns: number; toolCalls: number; summary: string }
 
-/** Runs one investigation of a review that is already saved, saving the run and its trace after every turn. */
+/**
+ * Runs one investigation of a review that is already saved, saving the run and its trace after every turn.
+ * Each turn sends the conversation so far. The model answers with tool calls, which run here and go back as results,
+ * until it answers with text alone (its summary) or a budget runs out. The run's status says how it ended.
+ */
 export async function investigate(review: Review, opts: { budget?: Partial<Budget>; log?: (line: string) => void } = {}): Promise<RunResult> {
   const budget = { ...DEFAULT_BUDGET, ...opts.budget }
   const log = opts.log ?? (() => {})
   const now = new Date()
   const runId = `run-${review.id}-${now.toISOString().replace(/[-:]/g, '').slice(0, 15)}`
   const state: RunState = { review, now, executions: [], checks: [], notes: [], findings: [], maxPython: budget.maxPython }
+  // The IGI code version, marked -dirty when the working tree has uncommitted changes.
   let commit = 'unknown'
   try {
     commit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim() + (execSync('git status --porcelain', { encoding: 'utf8' }).trim() ? '-dirty' : '')
   } catch {}
+  // What a run depends on, for reproducing or comparing it: model, effort, code and sandbox versions, hashes of the
+  // instructions and tools, the budget and each source's hash.
   const config: RunConfig = {
     model: MODEL,
     reasoning_effort: budget.effort,
@@ -69,6 +81,7 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
     memory_enabled: false, // §15.2: every run records the knowledge it was given
     knowledge_ids: [],
   }
+  // The trace: one event per model turn, tool call and error, saved with the run.
   const events: TraceEvent[] = []
   const event = (type: string, data: Record<string, unknown>) => events.push({ seq: events.length + 1, at: new Date().toISOString(), type, ...data })
   const usage = { input: 0, cached: 0, output: 0, reasoning: 0, costUsd: 0 }
@@ -98,6 +111,7 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
   const input: InputItem[] = [{ role: 'user', content: brief(review, budget) }]
   const deadline = Date.now() + budget.maxMinutes * 60_000
   try {
+    // One model turn per pass; the turn, cost and time budgets are checked before each.
     while (!status) {
       if (turns >= budget.maxTurns || usage.costUsd >= budget.maxCostUsd || Date.now() > deadline) {
         status = 'budget_exhausted'
@@ -112,8 +126,13 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
       const calls = items.filter((i) => i.type === 'function_call')
       event('model_turn', { turn: turns, ms, attempts, response_status: response.status, incomplete: response.incomplete_details ?? undefined, usage: u, message: text || undefined, tool_calls: calls.map((c) => c.name) })
       log(`[turn ${turns} ${(ms / 1000).toFixed(1)}s $${usage.costUsd.toFixed(3)}] ${calls.map((c) => c.name).join(', ') || '(no tool call)'}${text ? ` | ${clip(text.replace(/\s+/g, ' '), 160)}` : ''}`)
+      // The model's output joins the conversation as it came, so the next turn sees its own reasoning; reasoning
+      // items go back with a summary array, empty if the model gave none.
       for (const i of items) input.push(i.type === 'reasoning' ? { ...i, summary: i.summary ?? [] } : i)
 
+      // No tool call: the model has finished, unless its answer was cut off at the output limit. The status is
+      // blocked if it recorded a blocker and proposed nothing; completed with uncertainties if an open question,
+      // a blocker or an unvalidated finding remains; otherwise completed.
       if (!calls.length) {
         if (response.status === 'incomplete') {
           input.push({ role: 'user', content: 'Your last response was cut off at the output limit. Continue.' })
@@ -124,6 +143,8 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
         status = state.notes.some((n) => n.kind === 'blocker') && !state.findings.length ? 'blocked' : unresolved ? 'completed_with_uncertainties' : 'completed'
         break
       }
+      // Run each tool call. Any error, bad JSON arguments and a spent budget included, goes back to the model as
+      // { error } so it can adjust. A result over 40,000 characters is cut.
       for (const c of calls) {
         toolCalls++
         let args: Record<string, unknown> = {}
@@ -144,10 +165,13 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
         log(`    ${c.name} ${clip(JSON.stringify(args), 140)} -> ${clip(result, 140)}`)
         input.push({ type: 'function_call_output', call_id: c.call_id, output: result.length > 40_000 ? `${result.slice(0, 40_000)}… (truncated)` : result })
       }
+      // Past the budget every tool answers with an error asking for the summary; a turn that ends more than five
+      // calls past it stops the run.
       if (toolCalls > budget.maxToolCalls + 5) status = 'budget_exhausted'
       await save()
     }
   } catch (e) {
+    // A model request that failed after its retries, or a failed save, ends the run; the trace keeps the error.
     status = 'failed'
     event('error', { message: (e as Error).message })
     log(`run failed: ${(e as Error).message}`)

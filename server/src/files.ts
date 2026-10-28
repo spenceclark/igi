@@ -4,11 +4,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = () => process.env.FILES_DIR ?? fileURLToPath(new URL('../files/', import.meta.url))
+/** Where a file's key puts it on disk. */
+export const filePath = (key: string) => join(process.env.FILES_DIR ?? fileURLToPath(new URL('../files/', import.meta.url)), key)
 
 /** Writes a file once. Writing the same bytes again is a no-op; different bytes under the same key are refused. */
 export function putFile(key: string, bytes: Uint8Array) {
-  const path = join(root(), key)
+  const path = filePath(key)
   if (existsSync(path)) {
     if (!Buffer.from(readFileSync(path)).equals(bytes)) throw new Error(`${key} already exists with different content`)
     return
@@ -17,4 +18,5 @@ export function putFile(key: string, bytes: Uint8Array) {
   writeFileSync(path, bytes)
 }
 
-export const getFile = (key: string) => new Uint8Array(readFileSync(join(root(), key)))
+/** A stored file's bytes. */
+export const getFile = (key: string) => new Uint8Array(readFileSync(filePath(key)))

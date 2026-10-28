@@ -1,6 +1,6 @@
 -- IGI's own database (spec §11). Applied on every start; every statement is idempotent.
 -- ponytail: one schema file, no migration tool; add numbered migrations once a deployed database holds data worth keeping.
--- Source documents, domain rows, snapshots and packs arrive with uploads and the pack (§6.2, §13).
+-- Source documents and domain rows arrive with uploads (§6.2).
 
 create table if not exists review (
   id text primary key,
@@ -105,4 +105,20 @@ create table if not exists cairn_submission (
   cairn_read_at timestamptz,
   created_at timestamptz not null default now(),
   foreign key (run_id, finding_id, finding_version) references finding
+);
+
+-- Committee packs (§13). Each holds its immutable reviewed snapshot (§13.2) and the hashes of the snapshot and the
+-- HTML file. A later version supersedes every earlier one; only the stale columns ever change (§13.3).
+create table if not exists committee_pack (
+  review_id text not null references review,
+  version int not null,
+  generated_at timestamptz not null,
+  snapshot jsonb not null,
+  snapshot_sha256 text not null,  -- over the snapshot's canonical JSON (keys sorted), so it verifies after a jsonb round trip
+  file_key text not null,
+  file_sha256 text not null,
+  stale_at timestamptz,
+  stale_reason text,
+  primary key (review_id, version),
+  check ((stale_at is null) = (stale_reason is null))
 );

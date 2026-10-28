@@ -1,7 +1,7 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.9
+## Product & Technical Specification — v0.10
 
-**Date:** 27 October 2026  
+**Date:** 28 October 2026  
 **Status:** Working implementation specification. Gates A and B passed on 27 October; remaining IGI MVP work is in progress. Cross-review memory is a priority stretch goal (§6.9), not part of the MVP and not a prerequisite for the gates.  
 **Organisation:** Cairn River Ltd  
 **Project:** Standalone AI-first investment-governance application, built on Cairn  
@@ -353,7 +353,7 @@ IGI polls the candidate-status operation for candidates in its ledger and shows 
 | Incomplete | Any other combination: the file discarded, either item voided or unverifiable, filed on another record, or an item missing because its submission was refused or abandoned | Blocks |
 | Withdrawn | The operator withdrew it in IGI, with a reason | Excluded and counted |
 
-When more than one description fits, the first in this order applies: withdrawn, rejected, publication-ready, incomplete, pending. For example, a discarded assertion makes a finding rejected whatever its file's state.
+When more than one description fits, the first in this order applies: withdrawn, rejected, publication-ready, incomplete, pending. For example, a discarded assertion makes a finding rejected whatever its file's state. Each finding counts once, by its latest version: an earlier version, withdrawn before the matter was put forward again, is history and neither counts nor blocks. A finding Spark revised within its run counts only through its revision.
 
 **Withdrawal.** The operator can withdraw any finding version in IGI, submitted or not, and must give a reason. IGI records when and why. Withdrawal is final for that version and changes nothing in Cairn: a person discards any of its candidates still unfiled there. To put the matter forward again, the operator submits a new version. Withdrawal is how a pending, incomplete or voided finding stops blocking the pack. It is the operator's decision about what IGI puts forward, not a review decision, which belongs to Cairn.
 
@@ -361,11 +361,11 @@ IGI shows status and links to Cairn. It offers no accept or reject controls.
 
 ### 6.8 Generate the committee pack [New IGI]
 
-Immediately before generation, IGI makes a fresh status call and resolves every finding's state (§6.7). A **final committee pack** is generated only when no submitted finding is pending or incomplete. Its immutable `ReviewedSnapshot` (§13.2) holds the publication-ready findings. Rejected and withdrawn findings are excluded, and the pack states how many there were. The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data.
+Immediately before generation, IGI makes a fresh status call and resolves every finding's state (§6.7). A **final committee pack** is generated only when no submitted finding is pending or incomplete. Its immutable `ReviewedSnapshot` (§13.2) holds the publication-ready findings. Rejected and withdrawn findings are excluded, and the pack states how many there were. The pack is generated from that snapshot only, never from unreviewed agent output or live, mutable source data. IGI also confirms that the review's source files still have the hashes the latest analysis run recorded; if any differs, it generates nothing and asks for a new investigation.
 
 While any submitted finding is pending or incomplete, IGI lists what remains to be done and generates no final pack. It may show a preview, clearly marked incomplete, in which no unaccepted finding is presented as reviewed.
 
-**A pack with no findings** is valid only when the review's latest analysis run ended `completed` or `completed_with_uncertainties`, and every potential exception that run proposed (in its latest version) has been rejected in Cairn or withdrawn. A potential exception the operator neither submitted nor withdrew blocks a pack with no findings.
+**A pack with no findings** is valid only when the review's latest analysis run ended `completed` or `completed_with_uncertainties`, and every finding that run proposed or stored as a potential exception (in its latest version) has been rejected in Cairn or withdrawn. An unvalidated exception stored as an observation therefore still counts. A potential exception the operator neither submitted nor withdrew blocks a pack with no findings.
 
 If the verified evidence later changes, the pack keeps its version and is marked stale; a newly generated pack supersedes it (§13.3).
 
@@ -911,9 +911,11 @@ Built from a status read-back made immediately before generation. It records:
 - source document hashes;
 - policy rule versions;
 - execution and check references;
-- the generation time and a hash of the snapshot.
+- the content the pack shows for each finding: statement, explanation, figures, policy comparisons and uncertainties, all contained in its accepted assertion and package;
+- the portfolio figures, policy rules in force and open committee actions the pack shows, computed from the hashed sources at generation;
+- the generation time and a hash of the snapshot, taken over its JSON with keys sorted so that it verifies after storage.
 
-Only publication-ready findings enter the reviewed snapshot (§6.7, §12.5). While any submitted finding is pending or incomplete, no final pack is generated and the review is marked incomplete; a preview, if shown, is visibly labelled and presents no conclusion as accepted. The snapshot is immutable.
+Only publication-ready findings enter the reviewed snapshot (§6.7, §12.5). While any submitted finding is pending or incomplete, no final pack is generated and IGI lists what blocks it; a preview, if shown, is visibly labelled and presents no conclusion as accepted. The snapshot is immutable, and the pack is rendered from it alone, so the stored HTML can be reproduced from the snapshot.
 
 ### 13.3 Stale and superseded packs
 
@@ -925,13 +927,13 @@ An HTML pre-meeting pack, exported to PDF with the browser's print function:
 
 **Executive overview:** review period and portfolios; data coverage and validation status; number and type of potential exceptions; how many submitted findings were not accepted in Cairn and how many the operator withdrew; areas needing committee attention.
 
-**Portfolio overview:** allocation figures, changes between periods, charts from reviewed information.
+**Portfolio overview:** each portfolio's look-through allocation at the last two period ends and the change, with bars, computed by IGI's deterministic checks from the hashed sources and labelled as source data, not evidence filed in Cairn.
 
-**Material findings:** the potential issue, the applicable policy rule and version, supporting calculations and comparisons, explanation and uncertainties, evidence references, points for committee discussion.
+**Material findings:** the potential issue, the applicable policy rule and version, supporting calculations and comparisons, explanation, the uncertainties it states as points for committee discussion, evidence references. IGI adds no discussion points of its own.
 
-**Outstanding governance items:** missing data and unresolved investigations, previous committee actions still open, matters needing human judgement.
+**Outstanding governance items:** data validation issues, how many findings from the latest analysis run were not submitted to Cairn (as a count, without content), and previous committee actions not recorded as completed.
 
-**Appendix:** data source register, analysis methods, calculation and investigation references, accepted evidence manifest, generation and version information.
+**Appendix:** data source register, policy rules in force, analysis methods, calculation and investigation references, accepted evidence manifest, generation and version information.
 
 The material findings section contains only publication-ready findings, with both the accepted assertion and the accepted investigation package; no unaccepted supporting calculation may be represented as reviewed. Rejected and withdrawn findings appear only as counts, never with their content. The pack never invents recommendations, market commentary or committee decisions. A pack with no findings is a valid result **only under the conditions in §6.8**: clean findings and validated coverage are worth reporting.
 
@@ -1237,6 +1239,13 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.10, 28 October 2026**
+
+- Each finding counts once, by its latest version, and a finding Spark revised counts only through its revision (§6.7).
+- Pack generation also requires the source files to match the latest run's hashes. A pack with no findings counts a finding Spark proposed as a potential exception even if it was stored as an observation (§6.8).
+- The snapshot holds everything the pack shows, including the portfolio figures computed from the hashed sources, and its hash is over its JSON with keys sorted (§13.2).
+- Pack content made concrete: look-through allocation with the change between periods; the finding's own uncertainties as discussion points; validation issues, the latest run's unsubmitted findings as a count, and open committee actions as outstanding items (§13.4).
 
 **v0.9, 28 October 2026**
 

@@ -33,9 +33,10 @@ test('import: tampered data is reported, never repaired', () => {
 })
 
 test('findings: stated figures match check results at the stated precision', () => {
-  const c = ['0.3697', '42148542.00', '-0.0050']
-  for (const s of ['0.3697', '36.97%', '37%', '£42,148,542', '42,148,542.00', '-0.5pp', '-0.50 percentage points']) assert.ok(figureMatches(s, c), s)
-  for (const s of ['38%', '0.38', '£42,148,000', '0.5pp', 'about 37%']) assert.ok(!figureMatches(s, c), s)
+  const c = ['0.3697', '42148542.00', '-0.0050', '-0.0870', '0.0042', '92']
+  for (const s of ['0.3697', '36.97%', '37%', '£42,148,542', '42,148,542.00', '-0.5pp', '-0.50 percentage points', '-8.70%', '0.42%', '92']) assert.ok(figureMatches(s, c), s)
+  // Other units go in the label: '92 days' is not a figure.
+  for (const s of ['38%', '0.38', '£42,148,000', '0.5pp', 'about 37%', '8.70%', '42%', '92 days']) assert.ok(!figureMatches(s, c), s)
 })
 
 test('decimal: rounding half away from zero, division, formatting', () => {

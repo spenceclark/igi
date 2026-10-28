@@ -117,6 +117,13 @@ test('ledger: submit, read back and follow findings through Cairn', { skip }, as
   const opened = fake.requests
   assert.deepEqual(await ledger.openRecord(cairn, 'r1', config), record)
   assert.equal(fake.requests, opened)
+  assert.deepEqual(ledger.placementGaps(record), [])
+  const withoutDocuments = record.steps.slice(1).map((s) => ({ ...s, slots: s.slots.filter((x) => !x.allowedKinds.includes('document')) }))
+  assert.deepEqual(ledger.placementGaps({ record: record.record, steps: withoutDocuments }), [
+    'no step "Source data and reconciliation" (for data_quality, missing_information)',
+    'step "Portfolio allocation and risk review" has no document slot (for potential_exception, policy_inconsistency, explained_anomaly, observation)',
+    'step "Historical decisions and outstanding actions" has no document slot (for outstanding_action)',
+  ])
 
   await assert.rejects(ledger.submitFinding(cairn, ref('F4')), /revised as F1/)
 
