@@ -2,6 +2,7 @@
 // investigation package. Both are composed only from IGI's records of the run, and deterministically, so a
 // resend carries the same text.
 import type { CheckRow, ExecutionRow, FindingRow, RunRow } from './db.ts'
+import { COVERAGE, type ClaimResult } from './evidence.ts'
 
 // Cairn's limit on assertion text. A statement too long to fit is cut and ends with CONTINUED.
 export const ASSERTION_LIMIT = 4000
@@ -18,14 +19,40 @@ export const packageFileName = (reviewId: string, f: Pick<FindingRow, 'id' | 've
 const label = (classification: string) => classification.replaceAll('_', ' ')
 // The validation in words. A finding that states no figures has nothing to validate, which is not a failed check.
 const checked = (v: FindingRow['validation']) => (!v.matched.length && !v.unmatched.length ? 'no figures to validate' : v.state === 'validated' ? 'figures validated' : 'figures not validated')
+/** How one claim was checked, in words: the evidence it rests on, and that a quote is an extract, not a rule. */
+export const basisWords = (r: ClaimResult) =>
+  !r.ok
+    ? `not supported: ${r.reason}`
+    : r.basis === 'calculation'
+      ? `IGI check ${r.evidence}`
+      : r.basis === 'policy_rule'
+        ? `structured ${r.evidence}`
+        : r.basis === 'source_text'
+          ? `${r.evidence}, an extract from text`
+          : r.evidence ?? ''
+// What IGI's validation covers, said wherever a finding's checks are shown.
+export const CHECKED_SCOPE = 'IGI checked the figures and population statements listed against the analysis run’s evidence. The explanation and conclusion are the agent’s interpretation and were not checked by IGI.'
 
 /** Statement, classification, key figures, policy rule and IGI's ids, in at most 4,000 characters of plain text. */
 export function composeAssertion(f: FindingRow, runId: string, reviewId: string): string {
   const c = f.content
-  const head = `${c.title}\nClassification: ${label(f.classification)} (${checked(f.validation)}), materiality ${c.materiality}. Portfolios: ${c.portfolios.join(', ')}${c.period_end ? `, period ending ${c.period_end}` : ''}.`
+  const v = f.validation
+  const head = `${c.title}\nClassification: ${label(f.classification)} (${checked(v)}), materiality ${c.materiality}. Portfolios: ${c.portfolios.join(', ')}${c.period_end ? `, period ending ${c.period_end}` : ''}.`
+  // Findings with claims list each with how it was checked; older findings list their material numbers.
+  const figures = v.claims
+    ? v.claims.length
+      ? `Key figures: ${v.claims.map((r) => `${r.label}${r.value ? ` ${r.value}` : ''} (${basisWords(r)})`).join('; ')}.`
+      : ''
+    : c.material_numbers?.length
+      ? `Key figures: ${c.material_numbers.map((n) => `${n.label} ${n.value} (check ${n.check_id})`).join('; ')}.`
+      : ''
   const tail = [
-    c.material_numbers?.length ? `Key figures: ${c.material_numbers.map((n) => `${n.label} ${n.value} (check ${n.check_id})`).join('; ')}.` : '',
+    figures,
+    v.coverage?.length ? `Whole-population statements: ${v.coverage.map((x) => `${x.kind.replaceAll('_', ' ')} for ${x.portfolios.join(', ')} (${x.ok ? `checks ${x.checks.join(', ')}` : `not supported: ${x.reason ?? x.missing.join('; ')}`})`).join('; ')}.` : '',
+    v.unclaimed_figures?.length ? `Figures in the text not supported: ${v.unclaimed_figures.join(', ')}.` : '',
     c.policy_rule ? `Policy rule: ${c.policy_rule.rule_id}, version ${c.policy_rule.version}.` : '',
+    c.revision?.accepted ? `Revises finding ${c.revision.of} of the same run, which is kept as history.` : '',
+    v.claims ? CHECKED_SCOPE : '',
     `IGI finding ${f.id} version ${f.version}, analysis run ${runId}, review ${reviewId}. Proposed by the IGI agent; not reviewed until filed in Cairn.`,
   ].filter(Boolean)
   // Only the statement is shortened: it gets the room the heading and closing lines leave, less a little for line
@@ -45,14 +72,32 @@ function fence(text: string, lang = '') {
 const json = (v: unknown) => fence(JSON.stringify(v, null, 2), 'json')
 const list = (items: string[] | undefined) => (items?.length ? items.map((x) => `- ${x}`).join('\n') : '- None stated.')
 
-/** The investigation package: methodology, inputs and hashes, cited checks and executed code, assumptions and uncertainties. */
-export function composePackage(f: FindingRow, run: RunRow, reviewId: string, executions: ExecutionRow[], checks: CheckRow[]): string {
+/**
+ * The investigation package: methodology, inputs and hashes, what IGI checked and how, cited checks and executed
+ * code, assumptions and uncertainties, and the earlier findings of the run this one revised, kept as history.
+ */
+export function composePackage(f: FindingRow, run: RunRow, reviewId: string, executions: ExecutionRow[], checks: CheckRow[], findings: FindingRow[] = []): string {
   const c = f.content
-  // The checks the finding cites, directly or through a material number, and the executions it cites.
-  const checkIds = new Set([...(c.check_ids ?? []), ...(c.material_numbers ?? []).map((n) => n.check_id)])
+  const v = f.validation
+  // The checks the finding cites: directly, through a claim's fact (`C7:exposure`), through a coverage claim, or
+  // through an older finding's material number. And the executions it cites.
+  const checkIds = new Set([
+    ...(c.check_ids ?? []),
+    ...(c.claims ?? []).flatMap((x) => (x.source?.fact ? [x.source.fact.split(':')[0]] : [])),
+    ...(c.coverage ?? []).flatMap((x) => x.checks ?? []),
+    ...(c.material_numbers ?? []).map((n) => n.check_id),
+  ])
   const cited = checks.filter((x) => checkIds.has(x.id))
   const ran = executions.filter((x) => c.execution_ids?.includes(x.id))
   const cfg = run.config
+  // The earlier findings this one revised, newest first, following each accepted revision back through the run.
+  const earlier: FindingRow[] = []
+  for (let of = c.revision?.accepted ? c.revision.of : undefined; of; ) {
+    const prev = findings.find((x) => x.id === of)
+    if (!prev || earlier.includes(prev)) break
+    earlier.push(prev)
+    of = prev.content.revision?.accepted ? prev.content.revision.of : undefined
+  }
   // Text the model wrote (statement, explanation, code, errors, printed output) goes inside fences, so it shows
   // verbatim and can't add headings or links. Empty parts are dropped; blocks are separated by blank lines.
   return [
@@ -69,10 +114,16 @@ export function composePackage(f: FindingRow, run: RunRow, reviewId: string, exe
     fence(c.statement),
     `## Explanation`,
     fence(c.explanation),
-    `## Validation`,
-    `State: ${f.validation.state}. Every material number must appear in a trusted check result the finding cites.`,
-    `Matched:\n${list(f.validation.matched)}`,
-    `Not matched:\n${list(f.validation.unmatched)}`,
+    `## What IGI checked`,
+    ...(v.claims
+      ? [
+          `State: ${v.state}. ${CHECKED_SCOPE}`,
+          `Figures:\n${list(v.claims.map((r) => `${r.ok ? 'Checked' : 'Not supported'}: ${r.label}${r.value ? ` ${r.value}` : ''}, ${r.measure}${r.scope ? ` (${r.scope})` : ''}; ${basisWords(r)}${r.exact ? `; exact ${r.exact}` : ''}`))}`,
+          `Whole-population statements:\n${list(v.coverage?.map((x) => `${x.ok ? 'Checked' : 'Not supported'}: ${x.kind} (${COVERAGE[x.kind as keyof typeof COVERAGE] ?? x.kind}) for ${x.portfolios.join(', ')} at ${x.period}, from ${x.checks.join(', ') || 'no checks'}${x.ok ? '' : `; ${x.reason ?? `missing: ${x.missing.join('; ')}`}`}`))}`,
+          `Figures in the text that are not supported claims:\n${list(v.unclaimed_figures)}`,
+          `Statements about a whole population without coverage:\n${list(v.unsupported_scope)}`,
+        ]
+      : [`State: ${v.state}. Every material number must appear in a trusted check result the finding cites.`, `Matched:\n${list(v.matched)}`, `Not matched:\n${list(v.unmatched)}`]),
     `## Assumptions`,
     list(c.assumptions),
     `## Uncertainties`,
@@ -93,6 +144,13 @@ export function composePackage(f: FindingRow, run: RunRow, reviewId: string, exe
           x.stdout ? `Printed output:\n${fence(x.stdout)}` : '',
         ])
       : ['None cited.']),
+    ...(earlier.length
+      ? [
+          `## Revision history`,
+          `This finding revises ${earlier.map((x) => x.id).join(', which revised ')} from the same run. Each earlier finding is kept as it was proposed, with its own evidence, in the run's record.`,
+          ...earlier.flatMap((x) => [`### ${x.id}: ${x.content.title} (${label(x.classification)}, ${x.validation.state})`, fence(x.content.statement), `Not supported:\n${list(x.validation.unmatched)}`]),
+        ]
+      : []),
     `## Run`,
     `IGI commit ${cfg.igi_commit}; instructions ${cfg.instructions_sha}; tools ${cfg.tools_sha}; run started ${run.started_at.toISOString()}.`,
   ]

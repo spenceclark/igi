@@ -5,6 +5,7 @@ import { type Cairn, CairnRefused, CairnUncertain, type CandidateStatus, type Re
 import { json, loadRun, sql, type FindingRow } from './db.ts'
 import { getFile, putFile } from './files.ts'
 import { composeAssertion, composePackage, packageFileName, sourceReference } from './package.ts'
+import { isCurrent } from './evidence.ts'
 
 // The two items submitted for every finding version: its assertion and its investigation package file.
 // (The committee pack's own submission is recorded on the pack: see submitPack in committee-pack.ts.)
@@ -100,7 +101,7 @@ async function packageBytes(f: FindingRow, reviewId: string, run: NonNullable<Aw
     if (sha256(bytes) !== f.package_sha256) throw new Error(`stored package ${f.package_key} does not match its recorded hash`)
     return bytes
   }
-  const bytes = new TextEncoder().encode(composePackage(f, run.run, reviewId, run.executions, run.checks))
+  const bytes = new TextEncoder().encode(composePackage(f, run.run, reviewId, run.executions, run.checks, run.findings))
   const key = `packages/${f.run_id}/${f.id}-v${f.version}.md`
   putFile(key, bytes)
   await sql`update finding set package_key = ${key}, package_sha256 = ${sha256(bytes)} where run_id = ${f.run_id} and id = ${f.id} and version = ${f.version}`
@@ -118,6 +119,7 @@ export async function submitFinding(cairn: Cairn, ref: FindingRef): Promise<Ledg
   if (!run || !f) throw new Error(`no finding ${ref.id} v${ref.version} in ${ref.runId}`)
   if (f.withdrawn_at) throw new Error(`${f.id} v${f.version} is withdrawn; submit a new version`)
   if (f.superseded_by) throw new Error(`${f.id} was revised as ${f.superseded_by}; submit that instead`)
+  if (!isCurrent(f)) throw new Error(`${f.id} is a revision of ${f.content.revision?.of} that was not accepted; submit ${f.content.revision?.of} or a new revision`)
   const reviewId = run.run.review_id
   const [review] = await sql<{ cairn_record: RecordSteps | null }[]>`select cairn_record from review where id = ${reviewId}`
   const record = review?.cairn_record

@@ -11,6 +11,7 @@ import { retainSources } from '../src/files.ts'
 import { useVessel } from '../src/model.ts'
 import { closeSandbox } from '../src/sandbox.ts'
 import { importReview } from '../src/sources.ts'
+import { isCurrent } from '../src/evidence.ts'
 
 const [dir, ...rest] = process.argv.slice(2)
 if (!dir) {
@@ -29,8 +30,11 @@ retainSources(dir, review.sources) // the run records these hashes; the file sto
 
 const r = await investigate(review, { budget: effort ? { effort } : {}, log: console.log })
 await closeSandbox()
-const live = r.state.findings.filter((f) => !f.superseded_by)
+const live = r.state.findings.filter(isCurrent)
 console.log(`\n${r.status}: ${r.turns} turns, ${r.toolCalls} tool calls, ${r.state.executions.length} Python runs, ${r.state.checks.length} checks, $${r.usage.costUsd.toFixed(3)}`)
 for (const f of live) console.log(`  ${f.id} [${f.classification}${f.classification !== f.proposed_classification ? ` <- ${f.proposed_classification}` : ''}, ${f.validation.state}] ${f.portfolios} ${f.title}`)
+// What each current finding left unsupported, and the revisions made during the run, accepted or not.
+for (const f of live) if (f.validation.unmatched.length) console.log(`  ${f.id} not supported: ${f.validation.unmatched.join('; ')}`)
+for (const f of r.state.findings) if (f.revision) console.log(`  ${f.id} ${f.revision.accepted ? 'revised' : 'tried to revise'} ${f.revision.of}${f.revision.reason ? `: ${f.revision.reason}` : ''}`)
 console.log(`\nSummary:\n${r.summary}\n\nSaved as ${r.runId}.`)
 process.exit(r.status === 'failed' ? 1 : 0)

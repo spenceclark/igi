@@ -1,5 +1,5 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.11
+## Product & Technical Specification — v0.12
 
 **Date:** 28 October 2026  
 **Status:** Working implementation specification. Gates A and B passed on 27 October; remaining IGI MVP work is in progress. Cross-review memory is a priority stretch goal (§6.9), not part of the MVP and not a prerequisite for the gates.  
@@ -319,7 +319,31 @@ An investigation need not produce findings. Concluding that a suspected issue ha
 
 ### 6.4 Propose findings [New IGI]
 
-Spark calls `propose_finding` with a structured finding (§8.2). The backend checks that every cited source row, execution and check exists in this run. A finding whose material numbers have not been independently validated is stored as an unresolved observation, not a potential exception.
+Spark calls `propose_finding` with a structured finding (§8.2). The backend checks that every cited source row, execution and check exists in this run, then validates the finding's figures and scope as below. Every finding is stored, whatever the outcome, and the result tells Spark what failed and how to fix it. A potential exception that is not validated is stored as an unvalidated observation.
+
+**Evidence.** Each `run_check` result yields typed **facts**. A fact has an id (`C7:exposure`), a measure, a unit, an exact decimal value and a scope (portfolio, period, and where it applies an instrument, an asset class or a rule version). Units are explicit: fractions shown as %, differences between fractions shown in pp, pounds, counts. Margins against a limit, changes in charges and differences between returns are pp. So is a rule limit on a deviation between returns; every other rule limit is a fraction.
+
+**Claims.** Every figure a finding relies on is a claim: a key, a label, the value as the reader sees it, a measure, a scope (defaulting to the finding's portfolios and period) and one source:
+
+- a fact, for a computed or reported figure. It must have the claim's measure and scope: the right portfolio, period, instrument and asset class;
+- a structured rule version, for a numerical limit. It must be in force at the claim's period and apply to its portfolio. Numerical limits come only from the structured rules;
+- a quote from a committee-action row or a policy-document section, for a threshold or target written only in text. The quote is checked word for word and must hold exactly one figure. It is labelled as an extract a person reads in context, never as a verified rule;
+- a calculation on two other verified claims: a difference, a relative change, or a comparison with a relation (above, below, at or above, at or below, equal), which IGI evaluates.
+
+The value must equal the evidence in the same unit, at the precision stated, so a percentage never passes for a pp difference.
+
+**Text.** Every %, pp, bps or £ figure in the statement and explanation must equal a verified claim. So must every bare decimal with two or more places that is not a clause, section or version reference; a bare number with one place reads as a reference. Dates, identifiers and plain counts are left out. Wording about a whole population ("all portfolios", "every holding", "no other fund", "full coverage") needs a verified **coverage claim**. Coverage claims are checked against the population computed from the sources:
+
+- every holding's weights reconcile, which shows internal consistency only;
+- every holding has look-through data, which shows completeness;
+- every fund held has an unchanged charge, apart from named exceptions;
+- every rule in force is met, apart from named exceptions.
+
+Coverage is accepted only from cited check results, never from a Python result.
+
+**Outcome.** A finding is validated only when every claim and coverage claim checks out and nothing in its text is left unsupported. Validation covers the figures and populations only. The explanation and conclusion are Spark's interpretation, and the assertion, package and pack say so wherever they show the checks. Older findings carry `material_numbers` instead of claims and are shown as they were stored.
+
+**Revisions.** `replaces` names a current finding of the same run; an unknown, already revised or rejected one is refused, which also rules out self-reference and cycles. The revision becomes current, and the earlier finding is kept with its own evidence as history, when the revision is validated or the earlier finding was not. Otherwise the revision is stored as a rejected revision and the earlier finding stays current. A revision may change classification, materiality, portfolios and conclusion. Only current findings are submitted, counted and packed.
 
 ### 6.5 Submit to Cairn [New IGI]
 
@@ -353,7 +377,7 @@ IGI polls the candidate-status operation for candidates in its ledger and shows 
 | Incomplete | Any other combination: the file discarded, either item voided or unverifiable, filed on another record, or an item missing because its submission was refused or abandoned | Blocks |
 | Withdrawn | The operator withdrew it in IGI, with a reason | Excluded and counted |
 
-When more than one description fits, the first in this order applies: withdrawn, rejected, publication-ready, incomplete, pending. For example, a discarded assertion makes a finding rejected whatever its file's state. Each finding counts once, by its latest version: an earlier version, withdrawn before the matter was put forward again, is history and does not count. A finding Spark revised within its run counts only through its revision.
+When more than one description fits, the first in this order applies: withdrawn, rejected, publication-ready, incomplete, pending. For example, a discarded assertion makes a finding rejected whatever its file's state. Each finding counts once, by its latest version: an earlier version, withdrawn before the matter was put forward again, is history and does not count. A finding Spark revised within its run counts only through its revision; a revision that was not accepted (§6.4) never counts, and the finding it tried to replace stands.
 
 **Evidence of excluded versions.** The record must not hold active evidence of a version the pack leaves out. Any item of a withdrawn version, earlier versions included, or of a rejected one, that is filed and active on the review's record blocks a final pack and makes an existing pack stale (§13.3). IGI cannot void evidence and never tries: the blocker names the evidence reference, and a person voids it in Cairn, giving a reason such as "Superseded by IGI finding F3 v2". An item still unfiled in the Tray does not block; IGI lists it for a person to discard there, and if someone files it later the pack goes stale. The pack's appendix lists the excluded versions' items by evidence reference and state, without content.
 
@@ -463,9 +487,9 @@ The **MVP retains seven tools covering five capabilities**. Every core tool is r
 | Retrieve data and policies | `read_data` | Returns a bounded selection from one source: chosen columns, filters, sort and row limit. Numbers come back as decimal strings. Previous committee actions are a source like any other. |
 | | `get_policy` | Returns a policy's document text by section, and its structured rules for a portfolio and date, with effective versions. |
 | Execute Python | `run_python` | Runs Python in Monty (§9). The code can call read-only data functions with the same scope and bounds as `read_data`. Returns values, standard output and errors. |
-| Trusted calculations | `run_check` | Runs a named, tested deterministic calculation, such as weight reconciliation, look-through exposure against a limit, concentration, fee change between periods, or performance recomputation. The catalogue is in the tool description; Spark decides whether and when to call them. |
+| Trusted calculations | `run_check` | Runs a named, tested deterministic calculation, such as weight reconciliation, look-through exposure against a limit, concentration, fee change between periods, or performance recomputation. The catalogue is in the tool description; Spark decides whether and when to call them. Each result lists its typed facts, the ids a finding's claims cite (§6.4). |
 | Record work | `record_note` | Records an observation, hypothesis, assumption, open question or missing-information blocker. |
-| | `propose_finding` | Creates a structured finding: statement, classification, review area (source data; allocation and risk; funds, managers and fees; committee actions), portfolios, policy rule and version, cited source rows, execution and check ids, explanation, assumptions and uncertainties. The review area decides the procedure step its evidence is proposed for (§12.3). |
+| | `propose_finding` | Creates a structured finding: statement, classification, review area (source data; allocation and risk; funds, managers and fees; committee actions), portfolios, policy rule and version, cited source rows, execution and check ids, claims and coverage claims with their evidence (§6.4), explanation, assumptions and uncertainties, and the current finding it replaces, if any. The review area decides the procedure step its evidence is proposed for (§12.3). |
 
 **Memory tools [Stretch].** The priority slice adds one tool, `propose_knowledge`, which writes a **proposal**, never approved knowledge; the operator confirms it in IGI. Clarification requests use `record_note`'s existing `open_question` kind, so they need no new tool. The later stretch adds `search_history`, which searches approved knowledge, review handovers, earlier notes and the index of generated files, and returns only bounded, source-attributed results. No unrestricted object-store tool or cross-agent access is implied.
 
@@ -485,6 +509,9 @@ The system prompt asks Spark to:
 - keep what the records show apart from what they do not establish, since the absence of a record proves nothing either way, and put such gaps in the finding's uncertainties;
 - record each matter it could not resolve as an open question, saying what it affects;
 - cite the sources, executions and checks behind each finding;
+- state every figure in a finding as a claim with its evidence, and prove any statement about a whole population with coverage, or leave it out;
+- treat period-end positions as snapshots that do not show trades or causes, a met trigger as an obligation arising rather than one missed, and an action's stated aim as no evidence of its other effects;
+- read values with `read_data` in generated code rather than typing them in;
 - avoid inventing absent values or unsupported explanations;
 - stop when coverage is sufficient or the budget runs out.
 
@@ -609,7 +636,8 @@ Model-written code is treated as untrusted. Monty's isolation is language-level 
 - Units and rounding are defined explicitly for every financial metric.
 - Monetary values and weights never cross from JavaScript into Monty as JavaScript numbers, which become Python floats: in the smoke test, `Decimal(x) + Decimal(y)` with JavaScript `0.1` and `0.2` gives `0.3000000000000000166533453694`. Data functions return decimal strings; code converts them with `Decimal`; results come back as strings.
 - Spark's mental arithmetic is never relied on.
-- Every material number in a finding is validated independently, by a `run_check` result or a backend recomputation in decimal arithmetic. Without that, the finding stays an unresolved observation.
+- Every material figure in a finding is a claim bound to typed evidence (a check's fact, a structured rule, a quoted source text or a calculation on other claims) for its measure, scope and unit, and checked at the precision stated (§6.4). Without that, a potential exception stays an unvalidated observation.
+- Generated Python reads its values with `read_data`; a run whose code contains typed-in decimal figures gets a warning back.
 - Methodology is preserved with each result.
 - Missing or incompatible inputs are flagged.
 
@@ -777,7 +805,7 @@ Configured by a Workspace Admin in the chosen Cairn environment:
 
 For each submitted finding:
 
-- **Assertion:** the backend composes it from the structured finding: statement, classification, key figures with units, the policy rule and effective version, and IGI's finding and run ids. It fits within 4,000 characters of plain text.
+- **Assertion:** the backend composes it from the structured finding: statement, classification and whether its figures validated, each key figure with its unit and how IGI checked it (an IGI check, a structured rule, an extract from text, or a calculation), any whole-population statements and figures left unsupported, the policy rule and effective version, the finding it revises, a sentence saying the explanation and conclusion were not checked by IGI, and IGI's finding and run ids. It fits within 4,000 characters of plain text.
 - **Investigation package file:** methodology, input references and hashes, executed code, outputs, check results, assumptions and uncertainties.
 - **Required pair:** both the assertion and investigation-package file are mandatory for every submitted finding to be publication-ready. Their candidate IDs are correlated by IGI finding ID and version in the submission ledger; no single item stands in for the other.
 - **Source reference:** short and readable by the people filing it, such as `IGI review 2026-10, finding F-07`.
@@ -917,7 +945,7 @@ Built from a status read-back made immediately before generation. It records:
 - source document hashes;
 - policy rule versions;
 - execution and check references;
-- the content the pack shows for each finding: statement, explanation, figures, policy comparisons and uncertainties, all contained in its accepted assertion and package;
+- the content the pack shows for each finding: statement, explanation, figures with how IGI checked each and what it applies to, whole-population statements with their coverage, policy comparisons, uncertainties and the finding it revised, all contained in its accepted assertion and package;
 - the portfolio figures, policy rules in force and open committee actions the pack shows, computed from the hashed sources at generation, and the file store key of each retained source (§10.3);
 - for each outstanding-action finding, the committee actions it cites, as the action log records them;
 - the matters the latest run left unresolved: its open questions and blockers, and any potential exception it stored as an observation;
@@ -940,7 +968,7 @@ An HTML pre-meeting pack, exported to PDF with the browser's print function:
 
 **Portfolio overview:** each portfolio's look-through allocation at the last two period ends and the change, with bars, computed by IGI's deterministic checks from the hashed sources and labelled as source data, not evidence filed in Cairn.
 
-**Material findings:** the potential issue, the applicable policy rule and version, supporting figures, explanation, the uncertainties it states as points for committee discussion, evidence references. IGI adds no discussion points of its own. Policy comparisons are shown only where they support the finding: those on the measure of the rule it names, which covers the same limit in other portfolios the finding concerns. A finding that names no rule shows none, since a cited check's comparisons may concern another measure. An outstanding action shows instead the committee actions it cites, as the action log records them. Each comparison states the limit, the date, the actual figure and the margin in percentage points ("Exceeded by 1.97 percentage points"); the exact decimals stay in the investigation package.
+**Material findings:** the potential issue, the applicable policy rule and version, each figure with how IGI checked it and what it applies to, each whole-population statement with the population and checks behind it, a note that the explanation and conclusion are the agent's interpretation and not checked (and that reconciling weights shows consistency, not correctness), the finding it revises, explanation, the uncertainties it states as points for committee discussion, evidence references. IGI adds no discussion points of its own. Policy comparisons are shown only where they support the finding: those on the measure of the rule it names, which covers the same limit in other portfolios the finding concerns. A finding that names no rule shows none, since a cited check's comparisons may concern another measure. An outstanding action shows instead the committee actions it cites, as the action log records them. Each comparison states the limit, the date, the actual figure and the margin in percentage points ("Exceeded by 1.97 percentage points"); the exact decimals stay in the investigation package.
 
 **Matters the analysis could not resolve:** the latest run's open questions and blockers and any potential exception it stored as an observation, as the agent recorded them, labelled as not reviewed in Cairn. Shown only when there are any; each finding's own uncertainties stay with the finding.
 
@@ -1260,6 +1288,17 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.12, 28 October 2026**
+
+- Validation covers a finding's material claims (§6.4, §9.6):
+  - check results yield typed facts with measure, unit and scope;
+  - every figure is a claim bound to a fact, a structured rule, a quoted source text or a calculation on other claims, for its portfolio, period, instrument, rule version and unit;
+  - every figure in the text must be a verified claim, and population statements need coverage proven from check results;
+  - percentages and pp are distinct.
+- The assertion, package and pack say how each figure was checked and that the reasoning was not (§12.3, §13.4).
+- Revisions are accepted only when they do not retire a validated finding with an unvalidated one; rejected revisions are kept but never count (§6.4, §6.7).
+- Instructions on snapshots, triggers, stated aims and reading values in code (§8.3).
 
 **v0.11, 28 October 2026**
 

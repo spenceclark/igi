@@ -129,6 +129,57 @@ test('pack: snapshot, final pack, supersession, stale marking and the no-finding
   assert.match(reasons(await pack.generatePack(cairn, 'r1'))[0], /the sources differ from those of the latest analysis run run-r1-1: fees\.csv/)
 })
 
+test('pack: only current findings count; a rejected revision is kept but never submitted, and the pack shows the checks', { skip }, async () => {
+  await resetDatabase(db)
+  process.env.FILES_DIR = mkdtempSync(join(tmpdir(), 'igi-files-'))
+  await db.saveReview({ id: 'r1', periodEnd: '2026-09-30', sourceDir: DEV01 })
+  const sources = importReview(DEV01, 'r1').sources.map(({ id, file, sha256 }) => ({ id, file, sha256 }))
+  const at = '2026-10-28T09:00:00.000Z'
+  // F4's validation as validateFinding stores it: one figure checked against a fact, one population covered.
+  const checked = {
+    state: 'validated' as const,
+    matched: ['Equity exposure: 36.97% (C1:exposure)'],
+    unmatched: [],
+    claims: [{ key: 'e', label: 'Equity exposure', value: '36.97%', measure: 'exposure', basis: 'calculation' as const, ok: true, evidence: 'C1:exposure', exact: '0.369700000000', unit: 'fraction' as const, scope: 'P-CAU, equity, 2026-09-30' }],
+    coverage: [{ kind: 'weights_reconcile', portfolios: ['P-CAU'], period: '2026-09-30', checks: ['C1'], ok: true, missing: [] }],
+    unclaimed_figures: [],
+    unsupported_scope: [],
+  }
+  const state = {
+    executions: [],
+    checks: [{ id: 'C1', args: { check: 'lookthrough_exposure', portfolio_id: 'P-CAU', asset_class: 'equity' }, result: { exposure: '0.3697', comparisons: [] }, rowsUsed: ['positions:1'] }],
+    notes: [],
+    findings: [
+      finding('F1', { material_numbers: [{ label: 'Equity exposure', value: '36.97%', check_id: 'C1' }] }),
+      finding('F2', { replaces: 'F1', revision: { of: 'F1', accepted: false, reason: 'F1 is validated and this revision is not' }, validation: { state: 'unvalidated', matched: [], unmatched: ['1.97pp appears in the text but is not a verified claim'] } }),
+      finding('F3', { title: 'Earlier wording', superseded_by: 'F4' }),
+      finding('F4', { title: 'Revised wording', replaces: 'F3', revision: { of: 'F3', accepted: true }, validation: checked }),
+    ],
+  }
+  await db.saveRun({ id: RUN, reviewId: 'r1', startedAt: at, endedAt: at, status: 'completed', config: { ...CONFIG, sources }, turns: 1, toolCalls: 1, usage: {}, summary: '', events: [], state })
+  assert.deepEqual((await pack.resolveFindings('r1', null)).map((r) => r.f.id), ['F1', 'F4'], 'the rejected revision and the revised finding are not current')
+  assert.equal((await db.loadRun(RUN))!.findings.length, 4, 'every attempt is kept in the run')
+
+  const fake = cairnFake()
+  const cairn = cairnClient({ baseUrl: 'https://cairn.test', key: fake.key, fetch: fake.fetch })
+  await ledger.openRecord(cairn, 'r1', { subjectReference: fake.subject.cairnReference, procedureName: fake.procedure.name })
+  await assert.rejects(ledger.submitFinding(cairn, ref('F2')), /revision of F1 that was not accepted/)
+  for (const id of ['F1', 'F4']) for (const e of await ledger.submitFinding(cairn, ref(id))) fake.file(e.candidate_id!)
+  // The revision's package carries what IGI checked and the finding it revised.
+  const [row] = await db.sql<{ package_key: string }[]>`select package_key from finding where id = 'F4'`
+  const pkg = new TextDecoder().decode(getFile(row.package_key))
+  assert.match(pkg, /## What IGI checked[\s\S]*Checked: Equity exposure 36\.97%, exposure \(P-CAU, equity, 2026-09-30\); IGI check C1:exposure/)
+  assert.match(pkg, /## Revision history[\s\S]*### F3: Earlier wording/)
+  const r = await pack.generatePack(cairn, 'r1')
+  assert.ok('pack' in r, reasons(r).join('\n'))
+  const html = new TextDecoder().decode(getFile(r.pack.file_key))
+  assert.deepEqual(r.pack.snapshot.findings.map((f) => f.id), ['F1', 'F4'])
+  assert.match(html, /revising F3 of the same analysis run/)
+  assert.match(html, /<h4>Figures, and how IGI checked them<\/h4>.*<td>Equity exposure<\/td><td>36\.97%<\/td><td>IGI check C1:exposure<\/td>/s)
+  assert.match(html, /The explanation and conclusion are the agent’s interpretation and were not checked by IGI\. Weights that reconcile show the sources agree with each other, not that they are right\./)
+  assert.match(html, /<h4>Supporting figures<\/h4>/, 'a finding from before claims still shows its material numbers')
+})
+
 test('pack: evidence of a withdrawn or rejected version must not stand on the record; what the pack shows', { skip }, async () => {
   await resetDatabase(db)
   process.env.FILES_DIR = mkdtempSync(join(tmpdir(), 'igi-files-')) // the same run id as above: a file store of its own

@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { dec, div, fmt, mul, sum } from '../src/decimal.ts'
 import { parseCsv, toCsv } from '../src/csv.ts'
 import { importReview } from '../src/sources.ts'
-import { callTool, figureMatches, type RunState } from '../src/tools.ts'
+import { callTool, type RunState } from '../src/tools.ts'
+import { parseFigure, proseFigures, sameFigure, type Unit } from '../src/evidence.ts'
 import { route, useVessel } from '../src/model.ts'
 
 const SCENARIO = new URL('../../fixtures/scenarios/dev-01', import.meta.url)
@@ -33,11 +34,19 @@ test('import: tampered data is reported, never repaired', () => {
   assert.match(issues, /reported weights sum/)
 })
 
-test('findings: stated figures match check results at the stated precision', () => {
-  const c = ['0.3697', '42148542.00', '-0.0050', '-0.0870', '0.0042', '92']
-  for (const s of ['0.3697', '36.97%', '37%', '£42,148,542', '42,148,542.00', '-0.5pp', '-0.50 percentage points', '-8.70%', '0.42%', '92']) assert.ok(figureMatches(s, c), s)
-  // Other units go in the label: '92 days' is not a figure.
-  for (const s of ['38%', '0.38', '£42,148,000', '0.5pp', 'about 37%', '8.70%', '42%', '92 days']) assert.ok(!figureMatches(s, c), s)
+test('findings: a stated figure matches an exact value in its unit, at the precision stated', () => {
+  const matches = (s: string, exact: string, unit: Unit, ignoreSign = false) => {
+    const f = parseFigure(s)
+    return !!f && sameFigure(f, dec(exact), unit, ignoreSign)
+  }
+  for (const [s, exact, unit] of [['36.97%', '0.3697', 'fraction'], ['37%', '0.3697', 'fraction'], ['0.3697', '0.3697', 'fraction'], ['£42,148,542', '42148542.00', 'gbp'], ['-0.5pp', '-0.0050', 'points'], ['-0.50 percentage points', '-0.0050', 'points'], ['2 bps', '0.0002', 'points'], ['-8.70%', '-0.0870', 'fraction'], ['−8.70%', '-0.0870', 'fraction'], ['0.42%', '0.0042', 'fraction']] as const)
+    assert.ok(matches(s, exact, unit), s)
+  // A percentage is not a percentage-point difference, a sign counts, and other units are not figures.
+  for (const [s, exact, unit] of [['-0.50%', '-0.0050', 'points'], ['0.50pp', '0.0050', 'fraction'], ['38%', '0.3697', 'fraction'], ['8.70%', '-0.0870', 'fraction'], ['£42,148,000', '42148542.00', 'gbp'], ['92 days', '92', 'count']] as const)
+    assert.ok(!matches(s, exact, unit), s)
+  assert.ok(matches('8.70%', '-0.0870', 'fraction', true), 'unsigned prose may describe a negative value in words')
+  // In prose, dates, identifiers, clause references and plain counts are not material figures.
+  assert.deepEqual(proseFigures('On 30 September 2026 (A-2026-07-04, C7, clause 2.4, s4.2, per policy 2.4 and 7.1) 3 portfolios were 36.97%, −1.97pp and £1,000.00; 0.3697 too.').map((f) => f.text), ['36.97%', '−1.97pp', '£1,000.00', '0.3697'])
 })
 
 test('findings: each names the review area that decides its step in Cairn', async () => {

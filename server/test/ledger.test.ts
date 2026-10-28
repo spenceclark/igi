@@ -79,7 +79,7 @@ test('ledger: the assertion fits in 4,000 characters, with the ids at the end', 
   assert.match(text, /IGI finding F9 version 1, analysis run run-1, review r1\./)
   assert.match(text, /Classification: potential exception \(figures validated\)/)
   // A finding that states no figures has nothing to validate, which the reader shouldn't take for a failed check.
-  const bare = { ...row, validation: { state: 'unvalidated', matched: [], unmatched: [] }, content: { ...content, material_numbers: [] } }
+  const bare: FindingRow = { ...row, validation: { state: 'unvalidated', matched: [], unmatched: [] }, content: { ...content, material_numbers: [] } }
   assert.match(composeAssertion(bare, 'run-1', 'r1'), /Classification: potential exception \(no figures to validate\)/)
 })
 

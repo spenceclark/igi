@@ -16,6 +16,7 @@ import { checkPacks, excludedItems, generatePack, listPacks, reconcileAdvice, re
 import { loadRun, migrate, sql, type FindingRow } from '../src/db.ts'
 import { filePath } from '../src/files.ts'
 import { ledgerEntries, newVersion, openRecord, placementGaps, submitFinding, withdrawFinding } from '../src/ledger.ts'
+import { isCurrent } from '../src/evidence.ts'
 
 const COMMANDS = ['open', 'submit', 'status', 'pack', 'submit-pack', 'withdraw', 'new-version']
 const [command, reviewId, ...ids] = process.argv.slice(2)
@@ -74,7 +75,7 @@ async function currentFindings(asked: string[]) {
   const run = latest && (await loadRun(latest.id))
   if (!run) throw new Error(`review ${reviewId} has no analysis run`)
   const current = new Map<string, FindingRow>()
-  for (const f of run.findings) if (!f.superseded_by && f.version > (current.get(f.id)?.version ?? 0)) current.set(f.id, f)
+  for (const f of run.findings) if (isCurrent(f) && f.version > (current.get(f.id)?.version ?? 0)) current.set(f.id, f)
   const unknown = asked.filter((id) => !current.has(id))
   if (unknown.length) throw new Error(`not in ${run.run.id}: ${unknown.join(', ')}`)
   return current

@@ -56,7 +56,7 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
     // Each holding's weight from market values against its reported weight, and the sum of reported weights.
     case 'weight_reconciliation': {
       const h = holdings(review, a.portfolio_id, period)
-      const lines = h.rows.map(({ row, weight }) => ({ row_id: row.row_id, instrument_name: row.instrument_name, computed_weight: f4(weight), reported_weight: row.reported_weight, difference: f4(dec(row.reported_weight) - weight) }))
+      const lines = h.rows.map(({ row, weight }) => ({ row_id: row.row_id, instrument_id: row.instrument_id, instrument_name: row.instrument_name, computed_weight: f4(weight), reported_weight: row.reported_weight, difference: f4(dec(row.reported_weight) - weight) }))
       return {
         result: { portfolio_id: a.portfolio_id, period_end: period, total_market_value_gbp: fmt(h.total, 2), reported_weight_sum: f4(sum(h.rows.map((x) => dec(x.row.reported_weight)))), max_abs_difference: f4(h.rows.reduce((m, x) => { const d = abs(dec(x.row.reported_weight) - x.weight); return d > m ? d : m }, 0n)), holdings: lines },
         rowsUsed: h.rows.map((x) => x.row.row_id),
@@ -77,7 +77,7 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         const e = funds.find((x) => x.asset_class === a.asset_class)
         used.push(row.row_id, ...funds.map((x) => x.row_id))
         const exposure = e ? dec(e.exposure_weight) : 0n
-        return { row_id: row.row_id, instrument_name: row.instrument_name, fund_type: row.fund_type, weight: f4(weight), fund_exposure: f4(exposure), contribution: f4(mul(weight, exposure)), raw: mul(weight, exposure) }
+        return { row_id: row.row_id, instrument_id: row.instrument_id, instrument_name: row.instrument_name, fund_type: row.fund_type, weight: f4(weight), fund_exposure: f4(exposure), contribution: f4(mul(weight, exposure)), raw: mul(weight, exposure) }
       })
       const exposure = sum(contributions.map((c) => c.raw))
       const metric = `${a.asset_class}_exposure`
@@ -93,7 +93,13 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
       const sorted = [...h.rows].sort((x, y) => (y.weight > x.weight ? 1 : y.weight < x.weight ? -1 : 0))
       const { comparisons, ruleRows } = compareRules(review, a.portfolio_id, period, 'single_holding_weight', sorted[0].weight)
       return {
-        result: { portfolio_id: a.portfolio_id, period_end: period, largest: { row_id: sorted[0].row.row_id, instrument_name: sorted[0].row.instrument_name, weight: f4(sorted[0].weight) }, holdings: sorted.map((x) => ({ row_id: x.row.row_id, instrument_name: x.row.instrument_name, weight: f4(x.weight) })), comparisons },
+        result: {
+          portfolio_id: a.portfolio_id,
+          period_end: period,
+          largest: { row_id: sorted[0].row.row_id, instrument_id: sorted[0].row.instrument_id, instrument_name: sorted[0].row.instrument_name, weight: f4(sorted[0].weight) },
+          holdings: sorted.map((x) => ({ row_id: x.row.row_id, instrument_id: x.row.instrument_id, instrument_name: x.row.instrument_name, weight: f4(x.weight) })),
+          comparisons,
+        },
         rowsUsed: [...h.rows.map((x) => x.row.row_id), ...ruleRows],
       }
     }
@@ -121,7 +127,7 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         const before = fees.find((f) => f.instrument_id === row.instrument_id && f.period_end === from)
         const after = fees.find((f) => f.instrument_id === row.instrument_id && f.period_end === to)
         used.push(row.row_id, ...[before, after].filter((x): x is Row => !!x).map((x) => x.row_id))
-        return { instrument_name: row.instrument_name, from: before?.ongoing_charge ?? null, to: after?.ongoing_charge ?? null, change: before && after ? f4(dec(after.ongoing_charge) - dec(before.ongoing_charge)) : null }
+        return { instrument_id: row.instrument_id, instrument_name: row.instrument_name, from: before?.ongoing_charge ?? null, to: after?.ongoing_charge ?? null, change: before && after ? f4(dec(after.ongoing_charge) - dec(before.ongoing_charge)) : null }
       })
       return { result: { portfolio_id: a.portfolio_id, from_period: from, to_period: to, funds }, rowsUsed: used }
     }

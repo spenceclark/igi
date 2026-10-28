@@ -1,7 +1,7 @@
 // The seven agent tools (spec §8.2). Read-only, scoped to one review; only record_note and
 // propose_finding write, and only to this run's own record.
-import { dec, fmt, isDec } from './decimal.ts'
 import { CHECK_CATALOGUE, runCheck, type CheckArgs } from './checks.ts'
+import { COVERAGE, MEASURES, factIndex, factsOf, isCurrent, validateFinding, type Claim, type CoverageClaim, type Revision, type Validation } from './evidence.ts'
 import { LIMITS, hostFunction, runPython } from './sandbox.ts'
 import { READ_LIMIT, getPolicy, readData, rowExists, sourceSummary, type ReadArgs, type Review } from './sources.ts'
 
@@ -30,7 +30,8 @@ export type Execution = { id: string; purpose: string; code: string; ok: boolean
 export type Check = { id: string; args: CheckArgs; result: Record<string, unknown>; rowsUsed: string[] }
 export type Note = { id: string; kind: string; text: string; related_ids?: string[] }
 // propose_finding's arguments, as its JSON schema below declares them. review_area is required of the agent, but
-// findings stored before it existed have none.
+// findings stored before it existed have none. claims and coverage replaced material_numbers, which older stored
+// findings still carry: one figure each, checked only for appearing somewhere in a cited check's result.
 export type FindingArgs = {
   title: string
   statement: string
@@ -43,6 +44,8 @@ export type FindingArgs = {
   cited_rows?: string[]
   execution_ids?: string[]
   check_ids?: string[]
+  claims?: Claim[]
+  coverage?: CoverageClaim[]
   material_numbers?: { label: string; value: string; check_id: string }[]
   explanation: string
   assumptions?: string[]
@@ -50,8 +53,15 @@ export type FindingArgs = {
   replaces?: string
 }
 // A stored finding: the agent's arguments plus its id (F1...), the classification the agent proposed, the
-// validation outcome, and the id of the finding that revised it, if any.
-export type Finding = FindingArgs & { id: string; proposed_classification: string; validation: { state: string; matched: string[]; unmatched: string[] }; superseded_by?: string }
+// validation outcome, and the id of the finding that revised it, if any. revision is set on a finding proposed to
+// replace another: accepted when it became current, or not, with why, leaving the earlier finding current.
+export type Finding = FindingArgs & {
+  id: string
+  proposed_classification: string
+  validation: Validation
+  superseded_by?: string
+  revision?: Revision
+}
 // Everything one investigation run builds up, held in memory and saved with the run.
 export type RunState = { review: Review; now: Date; executions: Execution[]; checks: Check[]; notes: Note[]; findings: Finding[]; maxPython: number }
 
@@ -96,6 +106,7 @@ export const TOOLS = [
       'Runs Python in a sandbox (Monty, a restricted subset of Python) and returns the value of the last expression, printed output and any error. Each run is independent: nothing persists between runs.',
       `Inside the code, read_data(source, columns=None, filters=None, sort=None, limit=${READ_LIMIT}) returns rows as a list of dicts with string values, exactly like the read_data tool. At most ${LIMITS.maxSuspensions} read_data calls per run.`,
       'All numbers are decimal strings: convert with Decimal(value), never float(), and return results as strings (str(x)).',
+      'Read every value with read_data inside the code and join the rows there; never type figures from earlier results into the code.',
       'Available modules: decimal, datetime, math, json, re, collections, itertools. Not supported: class inheritance, @property, @staticmethod, @classmethod, user-defined exceptions, generator functions (yield), the statistics module, third-party packages (no pandas or numpy), files and network. Write plain functions over lists and dicts.',
       `Limits: ${LIMITS.maxFeedDurationSecs} s, ${LIMITS.maxMemory / 1024 / 1024} MB, recursion depth ${LIMITS.maxRecursionDepth}. Errors come back verbatim: fix the code and run it again.`,
     ].join('\n'),
@@ -104,7 +115,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'run_check',
-    description: `Runs a named, tested deterministic calculation in decimal arithmetic and returns its result with an id (C...). Rules are the structured rule versions in force at the period end. These results are the independent validation for numbers in findings. Catalogue (arguments: what it returns):\n${Object.entries(CHECK_CATALOGUE).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\nperiod_end defaults to the review period end; for fee_change, from_period defaults to the previous period end.`,
+    description: `Runs a named, tested deterministic calculation in decimal arithmetic and returns its result with an id (C...). Rules are the structured rule versions in force at the period end. The result's facts lists each figure as a fact id (C7:exposure) with its value in its unit, its measure and, where it has one, its asset class, instrument or rule; a finding's claims cite these ids. Catalogue (arguments: what it returns):\n${Object.entries(CHECK_CATALOGUE).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\nperiod_end defaults to the review period end; for fee_change, from_period defaults to the previous period end.`,
     parameters: obj(
       { check: { type: 'string', enum: Object.keys(CHECK_CATALOGUE) }, portfolio_id: str('Portfolio id'), period_end: str('ISO date'), asset_class: str('For lookthrough_exposure, e.g. equity, bonds, cash'), from_period: str('ISO date'), to_period: str('ISO date') },
       ['check', 'portfolio_id'],
@@ -124,8 +135,15 @@ export const TOOLS = [
       `Classifications: ${Object.entries(CLASSIFICATIONS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
       `review_area is the part of the review the finding belongs to: ${Object.entries(REVIEW_AREAS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
       'Cite the source row_ids, execution ids (X...) and check ids (C...) from this run that support it; unknown ids are rejected.',
-      'material_numbers lists every figure the finding relies on, each with the id of a run_check result containing it. State each figure as a reader would see it, with its unit: a fraction of 0.1234 as 12.34%, a change of 0.005 as 0.5pp, an amount as £1,000,000; put any other unit in the label. A potential_exception whose material numbers are not all found in the cited check results, at the precision stated, is stored as an unvalidated observation.',
-      'To revise an earlier finding, propose the new version with replaces set to the earlier id.',
+      'claims lists every figure the finding relies on, and every %, pp, bps or £ figure in its statement and explanation must be one of them. Each claim has a key, a label, a value written as a reader sees it (36.97%, 1.97pp, £1,000,000; a fraction as %, a difference between two fractions or a margin as pp), a measure, the scope it applies to, and one source:',
+      '- fact: a fact id from a run_check result, for any computed or reported figure;',
+      '- rule and version: a structured policy rule version in force, for a numerical limit (measure policy_limit);',
+      '- quote with row or section: the exact words of a committee_actions row or a policy document section that contain the figure, for a threshold or target written only in text (measure action_threshold or document_figure). A quoted figure is an extract a person reads in context, never a structured rule;',
+      '- derived with of (two claim keys): difference (measure change), relative_change, or comparison with a relation (above, below, at_or_above, at_or_below, equal; no value).',
+      `Scope: portfolio, period, instrument (an instrument id) and asset_class must match the evidence; portfolio defaults to the finding's portfolios and period to its period_end, so give them for a figure from another portfolio or date. Measures: ${Object.entries(MEASURES).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
+      `coverage proves a statement about a whole population (all portfolios, every holding, no other fund, full coverage), from run_check results only: ${Object.entries(COVERAGE).map(([k, v]) => `${k} (${v})`).join('; ')}. Give the portfolios it covers.`,
+      'IGI checks each claim against its evidence and each coverage claim against the population in the sources. The finding is validated only if all of them check out and no figure or population statement in the text is left unsupported; a potential_exception that is not validated is stored as an unvalidated observation. The reasoning and conclusion are not checked: they are yours, reviewed by a person.',
+      'To revise a current finding, propose the new version with replaces set to its id. The revision becomes current if it is validated, or if the finding it replaces was not; otherwise it is kept as a rejected revision and the earlier finding stays current.',
     ].join('\n'),
     parameters: obj(
       {
@@ -140,11 +158,50 @@ export const TOOLS = [
         cited_rows: strs('Source row_ids'),
         execution_ids: strs('run_python execution ids'),
         check_ids: strs('run_check ids'),
-        material_numbers: { type: 'array', items: obj({ label: str('What the number is'), value: str('The figure with its unit, e.g. 12.34%, -0.5pp or £1,000,000'), check_id: str('run_check id containing it') }, ['label', 'value', 'check_id']) },
+        claims: {
+          type: 'array',
+          items: obj(
+            {
+              key: str('Short name, unique in the finding, that derived claims refer to'),
+              label: str('What the figure is, as a reader would put it'),
+              value: str('The figure with its unit, e.g. 12.34%, -0.5pp or £1,000,000; omit for a comparison'),
+              measure: { type: 'string', enum: Object.keys(MEASURES) },
+              portfolio: str('Portfolio id, when not the finding’s only portfolio'),
+              period: str('ISO date, when not the finding’s period_end'),
+              instrument: str('Instrument id, for a figure about one holding or fund'),
+              asset_class: str('Asset class, for an exposure'),
+              source: obj({
+                fact: str('Fact id from a run_check result, e.g. C7:exposure'),
+                rule: str('Structured rule id'),
+                version: str('Rule version'),
+                quote: str('Exact words from the row or section containing the figure'),
+                row: str('committee_actions row_id the quote is from'),
+                section: str('Policy document section number the quote is from'),
+                derived: { type: 'string', enum: ['difference', 'relative_change', 'comparison'] },
+                of: strs('The two claim keys a derived claim is calculated from, in order'),
+                relation: { type: 'string', enum: ['above', 'below', 'at_or_above', 'at_or_below', 'equal'] },
+              }),
+            },
+            ['key', 'label', 'measure', 'source'],
+          ),
+        },
+        coverage: {
+          type: 'array',
+          items: obj(
+            {
+              kind: { type: 'string', enum: Object.keys(COVERAGE) },
+              portfolios: strs('Portfolio ids the statement covers'),
+              period: str('ISO date, when not the finding’s period_end'),
+              except: strs('Instrument ids or rule ids the statement excludes'),
+              checks: strs('run_check ids covering the population'),
+            },
+            ['kind', 'portfolios', 'checks'],
+          ),
+        },
         explanation: str('Why it matters or does not, and the reasoning behind it'),
         assumptions: strs('Assumptions the finding depends on'),
         uncertainties: strs('What remains uncertain, including anything the records do not establish'),
-        replaces: str('Id of an earlier finding this one revises'),
+        replaces: str('Id of a current finding this one revises'),
       },
       ['title', 'statement', 'classification', 'review_area', 'materiality', 'portfolios', 'explanation'],
     ),
@@ -181,14 +238,19 @@ export async function callTool(state: RunState, name: string, args: Record<strin
       const r = await runPython(args.code, host, state.now)
       const id = `X${state.executions.length + 1}`
       state.executions.push({ id, purpose: String(args.purpose ?? ''), code: args.code, ok: r.ok, result: r.result, stdout: r.stdout, error: r.error, errorType: r.errorType, ms: r.ms, reads })
-      return { execution_id: id, ok: r.ok, result: r.result, stdout: r.stdout + (r.stdoutTruncated ? '\n... (output truncated)' : ''), error: r.error }
+      // Decimal literals in the code suggest figures copied from earlier results rather than read from the data;
+      // the warning goes back to the agent and stays in the trace with the result.
+      const typed = [...new Set(args.code.match(/(?<![\w.])\d+\.\d{2,}/g) ?? [])]
+      const warning = typed.length ? `The code contains typed-in figures (${typed.slice(0, 6).join(', ')}${typed.length > 6 ? ', …' : ''}): read values with read_data inside the code instead, so the result rests on the sources.` : undefined
+      return { execution_id: id, ok: r.ok, result: r.result, stdout: r.stdout + (r.stdoutTruncated ? '\n... (output truncated)' : ''), error: r.error, warning }
     }
     case 'run_check': {
       const checkArgs = args as CheckArgs
       const { result, rowsUsed } = runCheck(review, checkArgs)
       const id = `C${state.checks.length + 1}`
-      state.checks.push({ id, args: checkArgs, result, rowsUsed })
-      return { check_id: id, ...result }
+      const check = { id, args: checkArgs, result, rowsUsed }
+      state.checks.push(check)
+      return { check_id: id, ...result, facts: factIndex(factsOf(check)) }
     }
     case 'record_note': {
       if (typeof args.kind !== 'string' || !NOTE_KINDS.includes(args.kind)) throw new Error(`kind must be one of ${NOTE_KINDS.join(', ')}`)
@@ -202,70 +264,55 @@ export async function callTool(state: RunState, name: string, args: Record<strin
   throw new Error(`unknown tool ${name}`)
 }
 
-/** Every decimal string anywhere in a check result, inside nested objects and arrays too. */
-function numbersIn(v: unknown, out: string[] = []): string[] {
-  if (typeof v === 'string' && isDec(v)) out.push(v)
-  else if (Array.isArray(v)) v.forEach((x) => numbersIn(x, out))
-  else if (v && typeof v === 'object') Object.values(v).forEach((x) => numbersIn(x, out))
-  return out
-}
-
-/** Does a stated figure (0.1234, 12.34%, -0.5pp, £1,000,000) appear in the check result at the stated precision? */
-export function figureMatches(stated: string, candidates: string[]): boolean {
-  const m = /^(-?)\s*£?\s*([\d,]*\.?\d+)\s*(%|pp|percentage points)?$/i.exec(stated.trim())
-  if (!m) return false
-  const raw = `${m[1]}${m[2].replaceAll(',', '')}`
-  if (!isDec(raw)) return false
-  const dp = (raw.split('.')[1] ?? '').length
-  // A % or pp figure is divided by 100 and gains two places, so 12.34% compares as 0.1234. Both sides are
-  // rounded to the stated precision first: 12% also matches 0.1234.
-  const [value, places] = m[3] ? [dec(raw) / 100n, dp + 2] : [dec(raw), dp]
-  return candidates.some((c) => fmt(dec(c), places) === fmt(value, places))
-}
-
 /**
- * Checks and stores a proposed finding. Its citations must exist in this run. Each material number must appear in
- * the result of the check it cites, at the precision stated. A potential exception with a number unmatched, or no
- * numbers at all, is stored as an unvalidated observation, and the message tells the agent how to put it right.
- * Proposing with `replaces` marks the earlier finding as superseded by this one.
+ * Checks and stores a proposed finding. Its citations must exist in this run. Its claims, coverage claims and text
+ * are validated against the run's evidence (validateFinding in evidence.ts); a potential exception that is not
+ * validated is stored as an unvalidated observation. Either way the finding is kept, and the message lists what
+ * failed and how to put it right. With `replaces`, the finding revises a current finding of this run: it takes
+ * that finding's place if it is validated or the earlier one was not, and otherwise is kept as a rejected revision.
  */
 function proposeFinding(state: RunState, a: FindingArgs) {
   if (!CLASSIFICATIONS[a.classification as keyof typeof CLASSIFICATIONS]) throw new Error(`classification must be one of ${Object.keys(CLASSIFICATIONS).join(', ')}`)
   if (!REVIEW_AREAS[a.review_area as keyof typeof REVIEW_AREAS]) throw new Error(`review_area must be one of ${Object.keys(REVIEW_AREAS).join(', ')}`)
   for (const f of ['title', 'statement', 'explanation'] as const) if (typeof a[f] !== 'string' || !a[f].trim()) throw new Error(`${f} is required`)
   if (!Array.isArray(a.portfolios) || !a.portfolios.length) throw new Error('portfolios is required')
+  if (a.material_numbers) throw new Error('material_numbers is replaced by claims: give each figure as a claim with its measure and source')
+  // Only a current finding of this run can be revised: an unknown id, one already revised, or a rejected
+  // revision is refused, which also rules out a finding revising itself and any cycle.
+  const replaced = a.replaces ? state.findings.find((f) => f.id === a.replaces) : undefined
+  if (a.replaces && !replaced) throw new Error(`unknown finding ${a.replaces}; replaces names a finding of this run`)
+  if (replaced?.superseded_by) throw new Error(`${replaced.id} was already revised as ${replaced.superseded_by}; revise that instead`)
+  if (replaced && !isCurrent(replaced)) throw new Error(`${replaced.id} is a rejected revision; revise the finding it tried to replace instead`)
   const unknown = [
     ...(a.cited_rows ?? []).filter((r) => !rowExists(state.review, r)),
     ...(a.execution_ids ?? []).filter((x) => !state.executions.some((e) => e.id === x)),
     ...(a.check_ids ?? []).filter((x) => !state.checks.some((c) => c.id === x)),
   ]
   if (unknown.length) throw new Error(`unknown citation ids: ${unknown.join(', ')}. Cite only row_ids, execution ids and check ids from this run.`)
-  if (!(a.cited_rows?.length || a.check_ids?.length || a.execution_ids?.length)) throw new Error('cite at least one source row, execution or check')
-  const replaced = a.replaces ? state.findings.find((f) => f.id === a.replaces) : undefined
-  if (a.replaces && !replaced) throw new Error(`unknown finding ${a.replaces}`)
+  if (!(a.cited_rows?.length || a.check_ids?.length || a.execution_ids?.length || a.claims?.length || a.coverage?.length)) throw new Error('cite at least one source row, execution, check or claim')
 
-  // Validation: each material number against the numbers in its cited check's result.
-  const matched: string[] = []
-  const unmatched: string[] = []
-  for (const n of a.material_numbers ?? []) {
-    const check = state.checks.find((c) => c.id === n.check_id)
-    const ok = !!check && figureMatches(String(n.value), numbersIn(check.result))
-    ;(ok ? matched : unmatched).push(`${n.label}: ${n.value} (${n.check_id})`)
-  }
-  const validated = matched.length > 0 && unmatched.length === 0
+  const validation = validateFinding({ review: state.review, checks: state.checks }, a)
+  const validated = validation.state === 'validated'
   const downgraded = a.classification === 'potential_exception' && !validated
   const id = `F${state.findings.length + 1}`
+  // A revision that is not validated never retires a validated finding; the attempt is kept for the record.
+  const accepted = !replaced || validated || replaced.validation.state !== 'validated'
   const finding: Finding = {
     ...a,
     id,
     proposed_classification: a.classification,
     classification: downgraded ? 'observation' : a.classification,
-    validation: { state: validated ? 'validated' : 'unvalidated', matched, unmatched },
+    validation,
+    ...(replaced ? { revision: { of: replaced.id, accepted, ...(accepted ? {} : { reason: `${replaced.id} is validated and this revision is not` }) } } : {}),
   }
   state.findings.push(finding)
-  if (replaced) replaced.superseded_by = id
-  const message = downgraded
-    ? `Stored as an unvalidated observation: ${unmatched.length ? `these numbers were not found in the cited check results: ${unmatched.join('; ')}` : 'no material numbers were validated against a run_check result'}. Run the relevant check and propose again with replaces="${id}" to record it as a potential_exception.`
-    : `Stored as ${finding.classification} (${finding.validation.state}).`
-  return { finding_id: id, classification: finding.classification, validation: finding.validation, message }
+  if (replaced && accepted) replaced.superseded_by = id
+
+  const problems = validation.unmatched.length ? ` Not supported: ${validation.unmatched.join('; ')}.` : ''
+  const message = [
+    `Stored as ${finding.classification} (${validation.state}).${problems}`,
+    downgraded ? `It was proposed as a potential_exception: fix the claims and propose again with replaces="${id}" to record it as one.` : '',
+    replaced ? (accepted ? `It replaces ${replaced.id}, which is kept as history.` : `It does not replace ${replaced.id}, which is validated and stays current; fix the claims and propose again with replaces="${replaced.id}".`) : '',
+  ].filter(Boolean).join(' ')
+  return { finding_id: id, classification: finding.classification, validation: { state: validation.state, matched: validation.matched, unmatched: validation.unmatched }, current: isCurrent(finding), message }
 }

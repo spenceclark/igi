@@ -6,8 +6,10 @@ import { CairnRefused, CairnUncertain, type Cairn, type CandidateStatus, type Ev
 import { runCheck, type Comparison } from './checks.ts'
 import { sql, json, type CheckRow, type FindingRow, type NoteRow, type RunRow } from './db.ts'
 import { abs, dec, fmt } from './decimal.ts'
+import { limitUnit, show, type ClaimResult, type CoverageResult } from './evidence.ts'
 import { getFile, putFile, retainSources } from './files.ts'
 import { findingState, itemState, refreshStatus, PACK_STEP, type ItemState, type Kind, type LedgerEntry } from './ledger.ts'
+import { basisWords, CHECKED_SCOPE } from './package.ts'
 import { importReview } from './sources.ts'
 
 // One accepted item: its candidate id, the evidence Cairn reported for it, and the SHA-256 of what IGI sent.
@@ -26,6 +28,11 @@ export type SnapshotFinding = {
   periodEnd: string | null
   policyRule: { rule_id: string; version: string } | null
   materialNumbers: { label: string; value: string; check_id: string }[]
+  // How IGI checked each figure and whole-population statement; null for a finding from before claims existed.
+  claims: ClaimResult[] | null
+  coverage: CoverageResult[]
+  // The finding of the same run this one revised, if any; the earlier one is kept in the run's record.
+  revises: string | null
   uncertainties: string[]
   checks: { id: string; check: string; portfolio_id: string; period_end: string | null; comparisons: Comparison[] }[]
   // The previous committee actions an outstanding-action finding cites, as the action log records them.
@@ -96,12 +103,14 @@ const reviewEntries = (reviewId: string) =>
 
 /** The latest version of every finding in the review that was not revised within its run, with its state (§6.7). */
 export async function resolveFindings(reviewId: string, recordReference: string | null) {
-  // `distinct on` keeps the first row of each (run, finding) in the order given: its highest version. A finding
-  // revised within its run (superseded_by set) is left out, since its revision stands in for it.
+  // `distinct on` keeps the first row of each (run, finding) in the order given: its highest version. Only current
+  // findings count (isCurrent in evidence.ts): one revised within its run (superseded_by set) is left out, since its
+  // revision stands in for it, and so is a revision that was not accepted, since the finding it tried to replace stands.
   const [findings, entries] = await Promise.all([
     sql<FindingRow[]>`
       select distinct on (f.run_id, f.id) f.* from finding f join analysis_run r on r.id = f.run_id
-      where r.review_id = ${reviewId} and f.superseded_by is null order by f.run_id, f.id, f.version desc`,
+      where r.review_id = ${reviewId} and f.superseded_by is null and coalesce(f.content->'revision'->>'accepted', 'true') = 'true'
+      order by f.run_id, f.id, f.version desc`,
     reviewEntries(reviewId),
   ])
   // By run, then by finding number, so F2 comes before F10. Each finding's state comes from its own version's entries.
@@ -331,7 +340,13 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
       .map(action),
     findings: included.map((r) => {
       const c = r.f.content
-      const ids = new Set([...(c.check_ids ?? []), ...(c.material_numbers ?? []).map((n) => n.check_id)])
+      // The checks it rests on: cited directly, through a claim's fact, a coverage claim, or an older material number.
+      const ids = new Set([
+        ...(c.check_ids ?? []),
+        ...(c.claims ?? []).flatMap((x) => (x.source?.fact ? [x.source.fact.split(':')[0]] : [])),
+        ...(c.coverage ?? []).flatMap((x) => x.checks ?? []),
+        ...(c.material_numbers ?? []).map((n) => n.check_id),
+      ])
       return {
         runId: r.f.run_id,
         id: r.f.id,
@@ -345,6 +360,9 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
         periodEnd: c.period_end ?? null,
         policyRule: c.policy_rule ?? null,
         materialNumbers: c.material_numbers ?? [],
+        claims: r.f.validation.claims ?? null,
+        coverage: r.f.validation.coverage ?? [],
+        revises: c.revision?.accepted ? c.revision.of : null,
         uncertainties: c.uncertainties ?? [],
         checks: checks
           .filter((x) => x.run_id === r.f.run_id && ids.has(x.id))
@@ -519,16 +537,28 @@ export function renderPack(s: Snapshot, version: number, snapshotSha: string): s
     const comparisons = shown.map((x) => {
       const by = `${points(x.margin)} percentage points`
       const result = x.status === 'breach' ? `<span class="breach">${x.limit_type === 'max' ? 'Exceeded by' : 'Below the minimum by'} ${by}</span>` : `Within the limit by ${by}`
-      return [esc(`${x.rule_id} v${x.version}`), esc(`${x.limit_type === 'max' ? 'Maximum' : 'Minimum'} ${pct(x.threshold)}`), esc(x.at), esc(pct(x.value)), result, esc(x.check)]
+      const unit = limitUnit(rule(x.rule_id, x.version)?.metric ?? '')
+      return [esc(`${x.rule_id} v${x.version}`), esc(`${x.limit_type === 'max' ? 'Maximum' : 'Minimum'} ${show(x.threshold, unit)}`), esc(x.at), esc(show(x.value, unit)), result, esc(x.check)]
     })
     const actions = f.committeeActions.map((a) => [`${esc(a.action_id)}: ${esc(a.action)}`, esc(a.owner), esc(a.due_date || 'standing'), esc(a.status), esc(a.notes)])
+    // Each figure with how IGI checked it, and each whole-population statement with the population it covers. A
+    // finding from before claims existed shows its material numbers instead.
+    const figures = f.claims
+      ? [
+          f.claims.length ? `<h4>Figures, and how IGI checked them</h4>${table(['Figure', 'Value', 'Checked against', 'Applies to'], f.claims.map((c) => [esc(c.label), esc(c.value ?? ''), c.ok ? esc(basisWords(c)) : `<span class="breach">${esc(basisWords(c))}</span>`, esc(c.scope ?? '')]))}` : '',
+          f.coverage.length ? `<h4>Statements about a whole population</h4>${table(['Statement', 'Portfolios', 'Checks', 'Result'], f.coverage.map((c) => [esc(c.kind.replaceAll('_', ' ')), esc(`${c.portfolios.join(', ')} at ${c.period}`), esc(c.checks.join(', ')), c.ok ? 'Every member covered' : `<span class="breach">${esc(c.reason ?? `Not covered: ${c.missing.join('; ')}`)}</span>`]))}` : '',
+          `<p class="note">${esc(CHECKED_SCOPE)}${f.coverage.some((c) => c.kind === 'weights_reconcile') ? ' Weights that reconcile show the sources agree with each other, not that they are right.' : ''}</p>`,
+        ].join('\n')
+      : f.materialNumbers.length
+        ? `<h4>Supporting figures</h4>${table(['Figure', 'Value', 'Check'], f.materialNumbers.map((n) => [esc(n.label), esc(n.value), esc(n.check_id)]))}`
+        : ''
     return `<article id="${esc(f.id)}-v${f.version}">
 <h3>${esc(f.id)}: ${esc(f.title)}</h3>
-<p class="meta">${esc(label(f.classification))}; ${esc(f.materiality)} materiality; portfolios ${esc(f.portfolios.join(', '))}${f.periodEnd ? `; period ending ${esc(f.periodEnd)}` : ''}. IGI finding ${esc(f.id)} version ${f.version}.</p>
+<p class="meta">${esc(label(f.classification))}; ${esc(f.materiality)} materiality; portfolios ${esc(f.portfolios.join(', '))}${f.periodEnd ? `; period ending ${esc(f.periodEnd)}` : ''}. IGI finding ${esc(f.id)} version ${f.version}${f.revises ? `, revising ${esc(f.revises)} of the same analysis run, which is kept in the run's record` : ''}.</p>
 <p>${esc(f.statement)}</p>
-${f.policyRule ? `<p><strong>Policy rule:</strong> ${esc(f.policyRule.rule_id)}, version ${esc(f.policyRule.version)}${r ? esc(`: ${r.metric}, ${r.limit_type === 'max' ? 'maximum' : 'minimum'} ${pct(r.threshold)} (${r.portfolio_id}, policy clause ${r.document_clause})`) : ''}.</p>` : ''}
+${f.policyRule ? `<p><strong>Policy rule:</strong> ${esc(f.policyRule.rule_id)}, version ${esc(f.policyRule.version)}${r ? esc(`: ${r.metric}, ${r.limit_type === 'max' ? 'maximum' : 'minimum'} ${show(r.threshold, limitUnit(r.metric))} (${r.portfolio_id}, policy clause ${r.document_clause})`) : ''}.</p>` : ''}
 ${actions.length ? `<h4>Committee action, as the action log records it</h4>${table(['Action', 'Owner', 'Due', 'Status', 'Notes'], actions)}` : ''}
-${f.materialNumbers.length ? `<h4>Supporting figures</h4>${table(['Figure', 'Value', 'Check'], f.materialNumbers.map((n) => [esc(n.label), esc(n.value), esc(n.check_id)]))}` : ''}
+${figures}
 ${comparisons.length ? `<h4>Comparison with policy</h4>${table(['Rule', 'Limit', 'At', 'Actual', 'Result', 'Check'], comparisons)}` : ''}
 <h4>Explanation</h4><p>${esc(f.explanation)}</p>
 <h4>Uncertainties to discuss</h4>${f.uncertainties.length ? list(f.uncertainties.map(esc)) : '<p>None stated.</p>'}
@@ -588,7 +618,7 @@ ${outstanding.join('\n')}
 ${table(['File', 'Rows', 'Issues', 'SHA-256'], s.sources.map((x) => [esc(x.file), x.rows, x.issues.length, `<code>${esc(x.sha256)}</code>`]))}
 <p class="meta">Each file is retained unchanged in IGI's file store under sources/&lt;SHA-256&gt;/&lt;file&gt;.</p>
 <h3>Policy rules in force at ${esc(s.periodEnd)}</h3>
-${table(['Rule', 'Version', 'Portfolio', 'Metric', 'Limit', 'Clause'], s.rules.map((r) => [esc(r.rule_id), esc(r.version), esc(r.portfolio_id), esc(r.metric), esc(`${r.limit_type} ${pct(r.threshold)}`), esc(r.document_clause)]))}
+${table(['Rule', 'Version', 'Portfolio', 'Metric', 'Limit', 'Clause'], s.rules.map((r) => [esc(r.rule_id), esc(r.version), esc(r.portfolio_id), esc(r.metric), esc(`${r.limit_type} ${show(r.threshold, limitUnit(r.metric))}`), esc(r.document_clause)]))}
 <h3>Analysis method</h3>
 <p>The IGI agent (${esc(s.run.model)}, reasoning effort ${esc(s.run.reasoningEffort)}) investigated the sources with read-only tools, Python in the Monty sandbox (${esc(s.run.montyVersion)}) and trusted deterministic checks in decimal arithmetic. Analysis run ${esc(s.run.id)}, ended ${esc(label(s.run.status))}; IGI code ${esc(buildWords(s.run.igiCommit))}; instructions ${esc(s.run.instructionsSha)}; tools ${esc(s.run.toolsSha)}. Each finding's investigation package holds its checks, with their exact figures, and executed code in full.</p>
 ${s.findings.length ? table(['Finding', 'Checks', 'Python executions'], s.findings.map((f) => [esc(`${f.id} v${f.version}`), esc(f.checks.map((c) => `${c.id} ${c.check} ${c.portfolio_id}`).join('; ') || 'none'), esc(f.executionIds.join(', ') || 'none')])) : ''}

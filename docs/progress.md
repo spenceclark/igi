@@ -240,6 +240,45 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
 - Checked: a core test covers routing both ways (19 pass; type check clean). The probe through Vessel made four calls, all 200, for $0.006. One Spark turn through the agent loop (review `vessel-check`, one-turn budget, $0.003) also returned 200. Vessel captured all five requests on backend `meta` with the expected tags and no warnings, and listed the sessions `meta-probe` (4 requests) and the run's id (1 request).
 - Vessel keeps whole requests and responses, encrypted reasoning included, on the developer's machine; the spec now says so and limits the flag to development runs.
 
+**Finding validation and revisions** (spec v0.12, §6.4)
+
+- The problem, from a reviewed run whose principal calculations were right but whose "validated" labels overstated what had been checked:
+  - a material figure passed if its digits appeared anywhere in a cited check's result, whatever it measured, for whichever portfolio, period or rule;
+  - figures in the statement or explanation that were never declared went unchecked: excesses over limits, an action's threshold, an action's target;
+  - deviations described as pp passed as %;
+  - claims about every fund or every holding rested on evidence that missed one, or on a Python sum;
+  - a revision replaced its predecessor whatever its own validation.
+- New `server/src/evidence.ts` covers the following.
+  - **Typed facts:** a fact for each figure of each check result (measure, unit, exact value, portfolio, period, instrument, asset class, rule version). Check results now carry instrument ids.
+  - **The claims contract**, with four kinds of source:
+    - a fact;
+    - a structured rule version in force;
+    - a quote from a committee action or a policy section, checked word for word and labelled an extract;
+    - a difference, relative change or comparison of two claims.
+  - **Unit-aware matching** at the stated precision.
+  - **A text scan** requiring every %, pp, bps or £ figure to be a verified claim, and population wording to have coverage.
+  - **Coverage claims**, checked against populations computed from the sources: weights reconcile (consistency), look-through complete (completeness), charges unchanged, limits met.
+  - **`isCurrent`**, used wherever findings are counted, submitted or packed.
+- `run_check` returns each result's facts; `propose_finding` takes claims and coverage instead of `material_numbers` and keeps every finding with feedback on what failed.
+- Revisions:
+  - Only a current finding can be replaced.
+  - A revision that is not validated is kept, but doesn't retire a validated finding.
+- `run_python` warns on typed-in figures. The instructions now treat:
+  - period-end snapshots as showing neither trades nor causes;
+  - a met trigger as an obligation arising, not one missed;
+  - an action's aim as no evidence of its other effects.
+- The assertion, package and pack show each figure's basis and scope, population statements, and revision history, and say that the explanation and conclusion were not checked. Rule limits on return deviations show in pp. Older findings render as stored.
+- Tests:
+  - `test/validation.test.ts`, 11 deterministic cases on dev-01 and edited copies, with no model or database: the clean breach, an unclaimed excess, wrong portfolio/period/measure/rule version, % against pp, action thresholds and a met trigger with no delivery evidence, a fund missing from "all funds", a holding without look-through data despite 100% groups, document against rule, a completed action missing its target, and the three revision cases with the refusals.
+  - A pack test: rejected revisions and revised findings are not current, can't be submitted, and the package and pack render the checks and history.
+  - The figures test now covers parsing, units and prose extraction.
+  - `npm test`: 31 pass; type check clean; `eval/verify-checks.ts` ok for both scenarios.
+- Live run (review `dev-01-claims`, through Vessel, completed with uncertainties, $0.26, a development build) produced nine current findings, all validated.
+  - Two first attempts failed with specific feedback: an exposure claim without its asset class, and an earlier period's charge claimed for the review date. Spark fixed both as accepted revisions, and the first attempts are kept as history.
+  - Coverage proved reconciliation and look-through completeness for all three portfolios, and "all other limits met" with the two breaches excepted.
+  - Three open questions were recorded. One says period-end positions don't show the trades behind a weight change.
+- Issue found and resolved: "per policy 2.4" was flagged as an unclaimed figure. A bare decimal now needs two or more places to count, and "policy" joins the reference words.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.
