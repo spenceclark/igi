@@ -1,21 +1,25 @@
 // Gate B proof of concept (spec §17.3 item 4): import a scenario and let Spark investigate it.
 // The run and its trace are saved in IGI's database (npm run db:up for the local one).
-// Run from server/: node --env-file-if-exists=.env scripts/investigate.ts ../fixtures/scenarios/dev-01 [--review id] [--effort high]
+// Run from server/: node --env-file-if-exists=.env scripts/investigate.ts ../fixtures/scenarios/dev-01 [--review id] [--effort high] [--vessel]
 // The review id defaults to the folder's name; give another to start a fresh review (and Cairn record) on the same sources.
+// --vessel sends the model requests through the local Vessel proxy (VESSEL_URL, default 127.0.0.1:4550), tagged
+// spark, in a Vessel session named after the run, so every turn can be inspected there.
 import { basename, resolve } from 'node:path'
 import { investigate } from '../src/agent.ts'
 import { migrate, saveReview } from '../src/db.ts'
 import { retainSources } from '../src/files.ts'
+import { useVessel } from '../src/model.ts'
 import { closeSandbox } from '../src/sandbox.ts'
 import { importReview } from '../src/sources.ts'
 
 const [dir, ...rest] = process.argv.slice(2)
 if (!dir) {
-  console.error('usage: scripts/investigate.ts <scenario dir> [--review id] [--effort low|medium|high]')
+  console.error('usage: scripts/investigate.ts <scenario dir> [--review id] [--effort low|medium|high] [--vessel]')
   process.exit(2)
 }
 const option = (name: string) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
 const effort = option('--effort')
+if (rest.includes('--vessel')) console.log(`Model requests go through Vessel at ${useVessel()}, in a session named after the run.`)
 const review = importReview(dir, option('--review') ?? basename(dir))
 const issues = review.sources.flatMap((s) => s.issues)
 console.log(`Imported ${review.id}: ${review.sources.length} sources, ${issues.length} validation issues`)

@@ -664,6 +664,8 @@ The probe is `npm run probe:meta` in `server/`. It reads `MODEL_API_KEY` from th
 
 The encrypted reasoning items are held in memory for the run only (§8.5). An interrupted run cannot resume part-way through its conversation; it restarts.
 
+**Development inspection through Vessel.** With `--vessel`, `npm run investigate` and `npm run probe:meta` send their model requests through a local Vessel proxy (`VESSEL_URL`, default `http://127.0.0.1:4550`) instead of to Meta directly. Vessel forwards each request unchanged to its `meta` backend and keeps a copy for inspection. Requests are tagged `spark` or `probe`, and an investigation's requests share a Vessel session named after the analysis run. The API key passes through Vessel, which stores only a redacted form. Vessel's history holds whole requests and responses, encrypted reasoning items included, on the developer's machine, so it is for development runs only; without the flag nothing changes and no Vessel headers are sent. IGI itself still persists no reasoning.
+
 Probe result, 27 October 2026, run from the development machine in the UK. Both surfaces work with `muse-spark-1.3`:
 
 | | Chat Completions | Responses (`store: false`) |

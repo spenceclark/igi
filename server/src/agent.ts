@@ -115,7 +115,7 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
         break
       }
       turns++
-      const { response, ms, attempts } = await respond({ instructions: INSTRUCTIONS, input, tools: TOOLS, reasoning: { effort: budget.effort }, max_output_tokens: budget.maxOutputTokens })
+      const { response, ms, attempts } = await respond({ instructions: INSTRUCTIONS, input, tools: TOOLS, reasoning: { effort: budget.effort }, max_output_tokens: budget.maxOutputTokens }, { session: runId })
       const u = costOf(response.usage)
       for (const k of Object.keys(usage) as (keyof typeof usage)[]) usage[k] += u[k]
       const items = response.output ?? []

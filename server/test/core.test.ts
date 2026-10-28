@@ -7,6 +7,7 @@ import { dec, div, fmt, mul, sum } from '../src/decimal.ts'
 import { parseCsv, toCsv } from '../src/csv.ts'
 import { importReview } from '../src/sources.ts'
 import { callTool, figureMatches, type RunState } from '../src/tools.ts'
+import { route, useVessel } from '../src/model.ts'
 
 const SCENARIO = new URL('../../fixtures/scenarios/dev-01', import.meta.url)
 
@@ -48,6 +49,15 @@ test('findings: each names the review area that decides its step in Cairn', asyn
   await assert.rejects(callTool(state, 'propose_finding', { ...args, review_area: 'fees' }), /review_area must be one of/)
   await callTool(state, 'propose_finding', { ...args, review_area: 'funds_fees' })
   assert.deepEqual(state.findings.map((f) => [f.id, f.review_area]), [['F1', 'funds_fees']])
+})
+
+test('model: requests go to Meta directly, or through Vessel with a tag and session only once asked', () => {
+  // Direct by default, with no Vessel headers; useVessel switches the base URL and the headers together.
+  assert.deepEqual(route('spark', 'run-1').headers, {})
+  assert.doesNotMatch(route('spark').base, /\/b\/meta\//)
+  useVessel('http://127.0.0.1:4550/')
+  assert.deepEqual(route('spark', 'run-1'), { base: 'http://127.0.0.1:4550/b/meta/v1', headers: { 'X-Vessel-Tags': 'spark', 'X-Vessel-Session': 'run-1' } })
+  assert.deepEqual(route('probe').headers, { 'X-Vessel-Tags': 'probe' })
 })
 
 test('decimal: rounding half away from zero, division, formatting', () => {

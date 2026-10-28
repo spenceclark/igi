@@ -1,10 +1,13 @@
 // Gate B probe for the Meta Model API (spec §10.1): one tool-calling round trip on Chat Completions
 // and one on the Responses API (stateless: store false, encrypted reasoning replayed), recording
 // latency, rate-limit headers, usage and estimated cost. Prints JSON to stdout.
-// Run: node --env-file-if-exists=.env scripts/meta-probe.ts   (needs MODEL_API_KEY)
+// Run: node --env-file-if-exists=.env scripts/meta-probe.ts [--vessel]   (needs MODEL_API_KEY)
+// --vessel sends the requests through the local Vessel proxy, tagged probe, in the Vessel session meta-probe.
+import { MODEL, route, useVessel } from '../src/model.ts'
+
 const KEY = process.env.MODEL_API_KEY
-const BASE = process.env.META_BASE_URL ?? 'https://api.meta.ai/v1'
-const MODEL = process.env.META_MODEL ?? 'muse-spark-1.3'
+if (process.argv.includes('--vessel')) useVessel()
+const { base: BASE, headers: VESSEL } = route('probe', 'meta-probe')
 const PRICE = { input: 1.25, cached: 0.15, output: 4.25 } // USD per 1M tokens, muse-spark-1.3 standard
 if (!KEY) {
   console.error('MODEL_API_KEY is not set. Put it in server/.env (gitignored) or the environment.')
@@ -40,7 +43,7 @@ async function post(surface: string, step: number, path: string, body: unknown):
   const t = performance.now()
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json', ...VESSEL },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(120_000),
   })
@@ -123,5 +126,5 @@ for (const [name, fn] of [['chat', chatCompletions], ['responses', responses]] a
   }
 }
 const totalCostUsd = Number(calls.reduce((s, c) => s + ((c.costUsd as number) ?? 0), 0).toFixed(6))
-console.log(JSON.stringify({ at: new Date().toISOString(), model: MODEL, results, totalCostUsd, calls }, null, 2))
+console.log(JSON.stringify({ at: new Date().toISOString(), model: MODEL, base: BASE, results, totalCostUsd, calls }, null, 2))
 process.exit(Object.values(results).every((r) => r === 'ok') ? 0 : 1)

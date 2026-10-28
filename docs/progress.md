@@ -230,6 +230,16 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
   - for the fresh demo record, meaningful void reasons.
 - Whether Cairn should enforce its single-item setting, return it to agents, or reword the label is a Cairn product decision, outside this repository. So is the print layout.
 
+**Model traffic through Vessel** (spec §10.1)
+
+- `--vessel` on `npm run investigate` and `npm run probe:meta` sends the model requests through the local Vessel proxy instead of to Meta directly. The address is `VESSEL_URL`, default `http://127.0.0.1:4550`, using its `meta` backend at `/b/meta/v1`.
+- The two IGI clients are both plain `fetch`:
+  - `respond` in `model.ts`, used by the Spark loop: requests are tagged `spark`, with the analysis run id as the Vessel session;
+  - the Meta probe: requests are tagged `probe`, in the session `meta-probe`.
+- `route` gates the base URL and the Vessel headers together. Without the flag, requests go to Meta's base URL with no extra headers.
+- Checked: a core test covers routing both ways (19 pass; type check clean). The probe through Vessel made four calls, all 200, for $0.006. One Spark turn through the agent loop (review `vessel-check`, one-turn budget, $0.003) also returned 200. Vessel captured all five requests on backend `meta` with the expected tags and no warnings, and listed the sessions `meta-probe` (4 requests) and the run's id (1 request).
+- Vessel keeps whole requests and responses, encrypted reasoning included, on the developer's machine; the spec now says so and limits the flag to development runs.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.

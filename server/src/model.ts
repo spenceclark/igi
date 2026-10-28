@@ -5,6 +5,25 @@ export const MODEL = process.env.META_MODEL ?? 'muse-spark-1.3'
 const PRICE = { input: 1.25, cached: 0.15, output: 4.25 } // USD per 1M tokens, muse-spark-1.3 standard
 const RETRYABLE = new Set([429, 500, 502, 503, 504])
 const ATTEMPTS = 4
+// The Vessel proxy requests go through instead of Meta directly, once a script calls useVessel (its --vessel flag).
+// Vessel forwards each request unchanged to its `meta` backend and keeps a copy for inspection; null means direct.
+let vessel: string | null = null
+
+/** Sends every later request through Vessel: VESSEL_URL, or Vessel's default local address. */
+export function useVessel(url = process.env.VESSEL_URL || 'http://127.0.0.1:4550') {
+  vessel = url.replace(/\/+$/, '')
+  return vessel
+}
+
+/**
+ * Where a request goes and the headers that label it. Direct, Meta's base URL and no extra headers. Through
+ * Vessel, its `meta` backend's path, the caller's tag (the agent or script) and, given one, a session name that
+ * groups a run's requests. Vessel strips its own headers before forwarding; the API key passes through untouched.
+ */
+export function route(tag: string, session?: string): { base: string; headers: Record<string, string> } {
+  if (!vessel) return { base: BASE, headers: {} }
+  return { base: `${vessel}/b/meta/v1`, headers: { 'X-Vessel-Tags': tag, ...(session ? { 'X-Vessel-Session': session } : {}) } }
+}
 
 export type Usage = { input: number; cached: number; output: number; reasoning: number; costUsd: number }
 
@@ -30,19 +49,21 @@ export function costOf(u: ApiUsage | undefined): Usage {
  * Sends one Responses API request and returns the parsed response, with the time taken and the attempts made.
  * Nothing is stored on Meta's side; the reasoning comes back encrypted for the caller to send again next turn.
  * Rate limits, server errors and network failures are retried up to ATTEMPTS times; any other error throws.
+ * `session` names the run's session when the request goes through Vessel; the agent's tag is spark.
  */
-export async function respond(body: Record<string, unknown>): Promise<{ response: ModelResponse; ms: number; attempts: number }> {
+export async function respond(body: Record<string, unknown>, opts: { session?: string } = {}): Promise<{ response: ModelResponse; ms: number; attempts: number }> {
   const key = process.env.MODEL_API_KEY
   if (!key) throw new Error('MODEL_API_KEY is not set (server/.env or the environment)')
+  const { base, headers } = route('spark', opts.session)
   const started = performance.now()
   for (let attempt = 1; ; attempt++) {
     let status = 0
     let detail = ''
     let retryAfter = 0
     try {
-      const res = await fetch(`${BASE}/responses`, {
+      const res = await fetch(`${base}/responses`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({ model: MODEL, store: false, include: ['reasoning.encrypted_content'], ...body }),
         signal: AbortSignal.timeout(300_000),
       })
