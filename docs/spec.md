@@ -1,5 +1,5 @@
 # Investment Governance Intelligence
-## Product & Technical Specification — v0.8
+## Product & Technical Specification — v0.9
 
 **Date:** 27 October 2026  
 **Status:** Working implementation specification. Gates A and B passed on 27 October; remaining IGI MVP work is in progress. Cross-review memory is a priority stretch goal (§6.9), not part of the MVP and not a prerequisite for the gates.  
@@ -792,7 +792,7 @@ Every submission attempt gets a `CairnSubmission` row before the request is sent
 | Payload hash | SHA-256 of the exact bytes or text sent |
 | Source reference | As sent |
 | Proposed step and slot | As sent |
-| Outcome | `sending`, `submitted`, `refused`, `uncertain` |
+| Outcome | `sending`, `submitted`, `refused`, `uncertain`, or `abandoned` by the operator |
 | Candidate id and placement | When Cairn returned them |
 | Error code | When Cairn refused |
 | Cairn status | Latest status read-back result and when it was read |
@@ -1134,7 +1134,7 @@ The detailed Cairn design is kept with Cairn's private documentation.
 - The ledger (§12.4) records every attempt; the poller (§12.5) updates Cairn status; the snapshot builder applies the eligibility rule; the pack view re-checks and marks stale.
 - The test double (§12.6) implements the same client contract, so the evaluation harness and tests never need Cairn.
 
-**4. Autonomous Spark and Monty proof of concept.** A command-line run in the server package (`scripts/investigate.ts`): import a development scenario, run the agent loop with the seven tools and Monty, and write the trace to a JSON file in `server/runs/`. The trace moves to the database with persistence (Fri 30 – Sat 31 Oct). Gate B's criteria are the acceptance test. No UI and no Cairn.
+**4. Autonomous Spark and Monty proof of concept.** A command-line run in the server package (`scripts/investigate.ts`): import a development scenario, run the agent loop with the seven tools and Monty, and write the trace to a JSON file in `server/runs/`. Since persistence (28 Oct), the run and its trace are saved in IGI's database instead. Gate B's criteria are the acceptance test. No UI and no Cairn.
 
 **5. Shortest route to a complete demo.** Once both gates pass:
 
@@ -1238,6 +1238,11 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.9, 28 October 2026**
+
+- The submission ledger has an `abandoned` outcome for entries the operator abandons (§12.4).
+- The proof-of-concept trace is saved in IGI's database rather than a JSON file (§17.3).
 
 **v0.8, 27 October 2026**
 

@@ -97,6 +97,21 @@ Issues found and resolved during the build:
 - `test/cairn.test.ts` runs the real client against the double: repeated starts, every candidate state the pack depends on (unfiled, filed and active, discarded, voided, restricted with `evidence: null`, unknown ids left out), refused versus uncertain, and the limits. `npm test` now runs every test file (10 pass).
 - `npm run probe:cairn` asks Cairn Dev for the status of one random id, using `CAIRN_BASE_URL` and `CAIRN_AGENT_KEY` from `server/.env`. First run on 27 Oct: `200` with no items in 309 ms, so the IGI agent's key works against the deployed read-back. Nothing was created in Cairn.
 
+## 2026-10-28
+
+**Persistence** (spec §11, §17.3 item 5)
+
+- A local PostgreSQL 18 container, `igi-postgres` on port 5434 (`npm run db:up`), separate from Cairn's. The DigitalOcean database replaces it at deployment through `DATABASE_URL`. Client: `postgres` 3.4.9, the server's second dependency.
+- `server/src/schema.sql`, applied idempotently on start: `review`, `analysis_run`, `trace_event`, `code_execution`, `check_result`, `note`, `finding` (one row per version, with withdrawal and the investigation-package file and hash) and `cairn_submission` (the §12.4 ledger, `sending` by default, plus an `abandoned` outcome added to §12.4). `analysis_run` holds the constant agent-definition id and records `memory_enabled: false` and `knowledge_ids: []` (§15.2).
+- `server/src/db.ts`: `migrate`, `saveReview`, `saveRun` and `loadRun`. The agent loop saves the run after every turn and at the end, so a run in progress can be read; it never passes the encrypted reasoning. `scripts/investigate.ts` saves the scenario as a review first and no longer writes `server/runs/`.
+- Not yet: source documents and domain rows (sources are still read from the scenario folder until uploads, §6.2), snapshots and packs (§13). One schema file and no migration tool until a deployed database holds data worth keeping.
+- `test/db.test.ts` (in the `igi_test` database, skipped when the container isn't running): a run saved mid-loop and again at the end reads back whole, including array and string values in jsonb; ledger entries start `sending` and must reference an existing finding version; a withdrawal needs a reason. `npm test`: 12 pass.
+- End to end on dev-01 (`run-dev-01-20261028T103251`, prompts and tools unchanged): `completed_with_uncertainties`, 18 turns, 37 tool calls, $0.150. Saved: 55 trace events (18 model turns, 37 tool calls), 2 executions, 20 checks, 6 findings. The three planted issues were found again (F1 look-through equity, F2 single holding under the 1 July limit, F3 overdue Fenwick action), plus the Growth notification trigger (F4).
+
+Issues found and resolved:
+- jsonb columns only take an array or string through `sql.json`; a bare array is sent as a Postgres array. Every jsonb value is wrapped.
+- Under Docker Desktop on Windows, connections to `localhost:5434` sometimes timed out when several opened at once (`CONNECT_TIMEOUT` in `loadRun`). The local URLs use `127.0.0.1`; three consecutive test runs passed.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.

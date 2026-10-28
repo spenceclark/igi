@@ -1,7 +1,7 @@
 // The investigation loop (spec §8): one Spark agent, the seven tools, budgets and a persisted trace.
 import { createHash } from 'node:crypto'
 import { execSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { saveRun, type TraceEvent } from './db.ts'
 import { MODEL, costOf, respond } from './model.ts'
 import { MONTY_VERSION } from './sandbox.ts'
 import type { Review } from './sources.ts'
@@ -44,23 +44,20 @@ function brief(review: Review, budget: Budget): string {
   ].join('\n')
 }
 
-export type RunResult = { runId: string; status: string; dir: string; state: RunState; usage: { input: number; cached: number; output: number; reasoning: number; costUsd: number }; turns: number; toolCalls: number; summary: string }
+export type RunResult = { runId: string; status: string; state: RunState; usage: { input: number; cached: number; output: number; reasoning: number; costUsd: number }; turns: number; toolCalls: number; summary: string }
 
+/** Runs one investigation of a review that is already saved, saving the run and its trace after every turn. */
 export async function investigate(review: Review, opts: { budget?: Partial<Budget>; log?: (line: string) => void } = {}): Promise<RunResult> {
   const budget = { ...DEFAULT_BUDGET, ...opts.budget }
   const log = opts.log ?? (() => {})
   const now = new Date()
   const runId = `run-${review.id}-${now.toISOString().replace(/[-:]/g, '').slice(0, 15)}`
-  const dir = new URL(`../runs/${runId}/`, import.meta.url)
-  mkdirSync(dir, { recursive: true })
   const state: RunState = { review, now, executions: [], checks: [], notes: [], findings: [], maxPython: budget.maxPython }
   let commit = 'unknown'
   try {
     commit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim() + (execSync('git status --porcelain', { encoding: 'utf8' }).trim() ? '-dirty' : '')
   } catch {}
-  const run = {
-    run_id: runId,
-    started_at: now.toISOString(),
+  const config = {
     model: MODEL,
     reasoning_effort: budget.effort,
     igi_commit: commit,
@@ -68,20 +65,34 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
     instructions_sha: sha(INSTRUCTIONS),
     tools_sha: sha(JSON.stringify(TOOLS)),
     budget,
-    review: { id: review.id, period_end: review.periodEnd, sources: review.sources.map((s) => ({ id: s.id, file: s.file, sha256: s.sha256 })) },
+    sources: review.sources.map((s) => ({ id: s.id, file: s.file, sha256: s.sha256 })),
+    memory_enabled: false, // §15.2: every run records the knowledge it was given
+    knowledge_ids: [],
   }
-  const events: Record<string, unknown>[] = []
+  const events: TraceEvent[] = []
   const event = (type: string, data: Record<string, unknown>) => events.push({ seq: events.length + 1, at: new Date().toISOString(), type, ...data })
   const usage = { input: 0, cached: 0, output: 0, reasoning: 0, costUsd: 0 }
   let turns = 0
   let toolCalls = 0
   let status = ''
   let summary = ''
+  // Never pass `input` here: it holds the encrypted reasoning (§8.5).
   const save = (final = false) =>
-    writeFileSync(
-      new URL('trace.json', dir),
-      JSON.stringify({ run: { ...run, ended_at: final ? new Date().toISOString() : undefined, status: status || 'running', turns, tool_calls: toolCalls, usage: { ...usage, costUsd: Number(usage.costUsd.toFixed(4)) } }, summary, findings: state.findings, notes: state.notes, checks: state.checks, executions: state.executions, events }, null, 2),
-    )
+    saveRun({
+      id: runId,
+      reviewId: review.id,
+      startedAt: now.toISOString(),
+      endedAt: final ? new Date().toISOString() : undefined,
+      status: status || 'running',
+      config,
+      turns,
+      toolCalls,
+      usage: { ...usage, costUsd: Number(usage.costUsd.toFixed(4)) },
+      summary,
+      events,
+      state,
+    })
+  await save()
 
   // Encrypted reasoning items live only in this array, in memory, for this run (§8.5).
   const input: any[] = [{ role: 'user', content: brief(review, budget) }]
@@ -132,13 +143,13 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
         input.push({ type: 'function_call_output', call_id: c.call_id, output: result.length > 40_000 ? `${result.slice(0, 40_000)}… (truncated)` : result })
       }
       if (toolCalls > budget.maxToolCalls + 5) status = 'budget_exhausted'
-      save()
+      await save()
     }
   } catch (e) {
     status = 'failed'
     event('error', { message: (e as Error).message })
     log(`run failed: ${(e as Error).message}`)
   }
-  save(true)
-  return { runId, status, dir: dir.pathname, state, usage, turns, toolCalls, summary }
+  await save(true)
+  return { runId, status, state, usage, turns, toolCalls, summary }
 }

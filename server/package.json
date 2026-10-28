@@ -6,6 +6,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "db:up": "docker start igi-postgres || docker run -d --name igi-postgres -p 5434:5432 -e POSTGRES_USER=igi -e POSTGRES_PASSWORD=igi -e POSTGRES_DB=igi -v igi-pgdata:/var/lib/postgresql postgres:18",
     "smoke:monty": "node scripts/monty-smoke.ts",
     "probe:meta": "node --env-file-if-exists=.env scripts/meta-probe.ts",
     "probe:cairn": "node --env-file-if-exists=.env scripts/cairn-probe.ts",
@@ -13,6 +14,7 @@
     "investigate": "node --env-file-if-exists=.env scripts/investigate.ts"
   },
   "dependencies": {
-    "@pydantic/monty": "1.4.0"
+    "@pydantic/monty": "1.4.0",
+    "postgres": "3.4.9"
   }
 }
