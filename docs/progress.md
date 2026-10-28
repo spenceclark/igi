@@ -48,7 +48,7 @@ Issues found and resolved during the build:
 - The six-step milestone passed against Cairn Dev, run on the Cairn side and confirmed here on 27 Oct. IGI may now rely on the read-back for committee-pack publication (spec §17.1); the contingency is not needed.
 - The candidate-status read-back is merged in Cairn (27 Oct), with the decision record and guardrail amendment, and deployed to Cairn Dev.
 - Checked from the Cairn code (read only): the route, field names, wire values, the 1–100 id limit, omission of unknown and others' ids, `evidence: null` for restricted or pre-extension filings, and record details only with "Look up records" all match spec §12.5. Two details added to §12.5: audit entries record counts only, and evidence on a later-cancelled record still reads `active`.
-- IGI has not yet called the deployed route itself: every `/api/intake` path returns `401` without a key. Its first call comes with the Cairn client (Fri 30 – Sat 31 Oct), using the "IGI" agent's key for Cairn Dev.
+- IGI has not yet called the deployed route itself: every `/api/intake` path returns `401` without a key. Its first call comes with the Cairn client (Fri 30 – Sat 31 Oct), using the "IGI" agent's key for Cairn Dev. (Done 27 Oct; see the Cairn client below.)
 
 **Spec v0.4** (`1816716`, written outside this session)
 
@@ -89,6 +89,13 @@ Issues found and resolved during the build:
 - The investigation package is a Markdown file, which Cairn previews as formatted text (spec §12.1).
 - Removed §20 (post-hackathon direction and Cairn platform candidates): a Cairn strategy document now covers it.
 - The end-to-end build uses a local Postgres; the DigitalOcean database and bucket wait until deployment.
+
+**Cairn client and test double** (spec §12, §17.3 item 3)
+
+- `server/src/cairn.ts`: the intake v1 client (`findSubject`, `listStartableProcedures`, `startRecord`, `findRecords`, `getRecordSteps`, `submitAssertion`, `submitFile`, `getCandidateStatus`). It never retries. A problem with a `code` throws `CairnRefused` (nothing was created); a timeout, dropped connection or response without a usable body throws `CairnUncertain`, which the ledger will record as `uncertain` (§12.4). Status requests go 100 ids at a time; file bodies are bytes, so Content-Length is exact; the source-reference header is always percent-encoded, because Cairn always decodes it.
+- `server/src/cairn-fake.ts`: the test double (§12.6) is a `fetch` serving the same routes, shapes, problem codes and limits (60 requests per 10 minutes with `Retry-After`, 100 unfiled, 25 untouched records, 4,000-character assertions, 200-character one-line references, unsupported file types), seeded with the §12.2 subject and five-step procedure. Hooks stand in for people in Cairn: file, discard, void, restrict a record, act on a record, and a response lost after the request was handled.
+- `test/cairn.test.ts` runs the real client against the double: repeated starts, every candidate state the pack depends on (unfiled, filed and active, discarded, voided, restricted with `evidence: null`, unknown ids left out), refused versus uncertain, and the limits. `npm test` now runs every test file (10 pass).
+- `npm run probe:cairn` asks Cairn Dev for the status of one random id, using `CAIRN_BASE_URL` and `CAIRN_AGENT_KEY` from `server/.env`. First run on 27 Oct: `200` with no items in 309 ms, so the IGI agent's key works against the deployed read-back. Nothing was created in Cairn.
 
 **Open**
 
