@@ -48,7 +48,13 @@ export type TraceEventRow = { seq: number; at: Date; type: string; data: Record<
 export type ExecutionRow = Pick<Execution, 'id' | 'purpose' | 'code' | 'ok' | 'result' | 'stdout' | 'ms' | 'reads'> & { run_id: string; error: string | null; error_type: string | null }
 export type CheckRow = { run_id: string; id: string; args: CheckArgs; result: Record<string, unknown>; rows_used: string[] }
 export type NoteRow = { run_id: string; id: string; kind: string; text: string; related_ids: string[] | null }
+// A file in IGI's file store, by key, with the SHA-256 recorded when it was written.
+export type StoredFile = { key: string; sha256: string }
+// What a finding version was submitted as (spec §10.3, §12.3): the frozen presentation payload, the assertion text
+// and the package file with its name, media type and render record (renderer and template version, for a PDF).
+export type FindingArtifacts = { payload: StoredFile; assertion: StoredFile; package: StoredFile & { name: string; mediaType: string; renderer?: string; template?: string } }
 // One version of a finding. A withdrawn version is final; putting the finding forward again adds the next version.
+// package_key and package_sha256 name the package file, also recorded in artifacts once the version is submitted.
 export type FindingRow = Pick<Finding, 'id' | 'classification' | 'proposed_classification' | 'validation'> & {
   run_id: string
   version: number
@@ -56,6 +62,7 @@ export type FindingRow = Pick<Finding, 'id' | 'classification' | 'proposed_class
   superseded_by: string | null
   package_key: string | null
   package_sha256: string | null
+  artifacts: FindingArtifacts | null
   withdrawn_at: Date | null
   withdrawal_reason: string | null
 }

@@ -49,6 +49,16 @@ export const CONFIG: RunConfig = {
   knowledge_ids: [],
 }
 
+/** A PDF's text as a reader extracting it would get it, pages joined by line breaks (spec §15.8). */
+export async function pdfText(bytes: Uint8Array): Promise<string> {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const doc = await getDocument({ data: new Uint8Array(bytes) }).promise
+  const pages: string[] = []
+  for (let i = 1; i <= doc.numPages; i++) pages.push((await (await doc.getPage(i)).getTextContent()).items.map((x) => ('str' in x ? x.str : '')).join(' '))
+  await doc.cleanup()
+  return pages.join('\n')
+}
+
 export const finding = (id: string, more: Partial<Finding> = {}): Finding => ({
   id,
   title: `Finding ${id}`,

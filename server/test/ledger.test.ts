@@ -4,15 +4,20 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { cairnClient } from '../src/cairn.ts'
 import { cairnFake } from '../src/cairn-fake.ts'
-import type { FindingRow } from '../src/db.ts'
+import type { FindingRow, RunRow } from '../src/db.ts'
 import type { LedgerEntry } from '../src/ledger.ts'
-import { ASSERTION_LIMIT, composeAssertion } from '../src/package.ts'
-import { CONFIG, finding, resetDatabase, useTestDatabase } from './helpers.ts'
+import { composeAssertion, findingPayload, runTag } from '../src/package.ts'
+import { closeRenderer } from '../src/render.ts'
+import type { Finding } from '../src/tools.ts'
+import { CONFIG, finding, pdfText, resetDatabase, useTestDatabase } from './helpers.ts'
 
 const skip = await useTestDatabase('ledger')
 const db = await import('../src/db.ts')
 const ledger = await import('../src/ledger.ts')
-after(() => db.sql.end())
+after(async () => {
+  await closeRenderer()
+  await db.sql.end()
+})
 
 const REC = 'CAI-AAAA-BBBB-CCCC-D'
 type ReadBack = LedgerEntry['cairn_status']
@@ -70,17 +75,25 @@ test('ledger: finding states follow §6.7, first match in its order', () => {
   }
 })
 
-test('ledger: the assertion fits in 4,000 characters, with the ids at the end', () => {
-  const { id, classification, proposed_classification, validation, superseded_by, ...content } = finding('F9', { statement: 'x'.repeat(5000) })
-  const row: FindingRow = { run_id: 'run', id, version: 1, classification, proposed_classification, validation, content, superseded_by: null, package_key: null, package_sha256: null, withdrawn_at: null, withdrawal_reason: null }
-  const text = composeAssertion(row, 'run-1', 'r1')
-  assert.ok(text.length <= ASSERTION_LIMIT, String(text.length))
-  assert.match(text, /continued in the investigation package\)/)
-  assert.match(text, /IGI finding F9 version 1, analysis run run-1, review r1\./)
-  assert.match(text, /Classification: potential exception \(figures validated\)/)
+// A run and a finding as the database returns them, for composing an assertion without one.
+const RUN_ROW: RunRow = { id: 'run-1', review_id: 'r1', agent_definition_id: 'investment-governance', started_at: new Date('2026-10-28T09:00:00Z'), ended_at: null, status: 'completed', config: CONFIG, turns: 1, tool_calls: 1, usage: null, summary: null }
+function rowOf(f: Finding): FindingRow {
+  const { id, classification, proposed_classification, validation, superseded_by, ...content } = f
+  return { run_id: 'run-1', id, version: 1, classification, proposed_classification, validation, content, superseded_by: superseded_by ?? null, package_key: null, package_sha256: null, artifacts: null, withdrawn_at: null, withdrawal_reason: null }
+}
+const assertionOf = (f: Finding) => composeAssertion(findingPayload(rowOf(f), RUN_ROW, 'r1', [], [], []))
+
+test('ledger: the assertion is structured plain text within 4,000 characters, refused rather than cut', () => {
+  const text = assertionOf(finding('F9', { material_numbers: [{ label: 'Equity exposure', value: '36.97%', check_id: 'C1' }], uncertainties: ['Look-through data is a month old.'] }))
+  assert.match(text, /^Finding F9\nFinding: potential exception, high materiality; figures validated\. Portfolios: P1\.\n/)
+  assert.match(text, /\nKey figures and how IGI checked them:\n- Equity exposure: 36\.97% \(check C1\)\n/)
+  assert.match(text, /\nWhy it matters:\nThe limit is 35%\.\n\nUnresolved:\n- Look-through data is a month old\.\n/)
+  assert.match(text, /\nIGI review r1, run run-1, finding F9 version 1\. Proposed by the IGI agent; not reviewed until filed in Cairn\.$/)
+  assert.doesNotMatch(text, /\*\*|^#|\]\(|<\w/m, 'Cairn shows an agent’s assertion as plain text: no Markdown or HTML')
+  // Nothing is cut to fit: an assertion over the limit is refused, so the finding has to be shortened.
+  assert.throws(() => assertionOf(finding('F9', { statement: 'x'.repeat(5000) })), /over Cairn's 4000; nothing is cut to fit/)
   // A finding that states no figures has nothing to validate, which the reader shouldn't take for a failed check.
-  const bare: FindingRow = { ...row, validation: { state: 'unvalidated', matched: [], unmatched: [] }, content: { ...content, material_numbers: [] } }
-  assert.match(composeAssertion(bare, 'run-1', 'r1'), /Classification: potential exception \(no figures to validate\)/)
+  assert.match(assertionOf(finding('F9', { validation: { state: 'unvalidated', matched: [], unmatched: [] } })), /potential exception, high materiality; no figures to validate\./)
 })
 
 const RUN = 'run-r1-1'
@@ -140,16 +153,24 @@ test('ledger: submit, read back and follow findings through Cairn', { skip }, as
   assert.deepEqual(fake.candidates.map((c) => c.proposedStepId), [allocation.id, allocation.id])
   assert.deepEqual(fake.candidates.map((c) => c.proposedSlotId), allocation.slots.map((s) => s.id))
   const [assertion, file] = fake.candidates
-  assert.match(assertion.text!, /Equity exposure 36\.97% \(check C1\)/)
-  assert.match(assertion.text!, /IGI finding F1 version 1, analysis run run-r1-1, review r1/)
-  assert.equal(assertion.sourceReference, 'IGI review r1, finding F1')
-  assert.equal(file.filename, 'IGI-r1-F1-v1.md')
-  const pkg = new TextDecoder().decode(file.bytes)
-  assert.match(pkg, /### C1: lookthrough_exposure/)
-  assert.ok(pkg.includes('````\n```\n\n````'), 'the fence is longer than the backticks in the output')
+  const tag = runTag(RUN)
+  assert.match(assertion.text!, /- Equity exposure: 36\.97% \(check C1\)/)
+  assert.match(assertion.text!, /IGI review r1, run run-r1-1, finding F1 version 1\./)
+  assert.equal(assertion.sourceReference, `IGI r1, run ${tag}, F1 v1`)
+  assert.equal(file.filename, `IGI-r1-${tag}-F1-v1.pdf`)
+  // The package is a PDF whose text carries the check, the executed code's output, and IGI's ids.
+  assert.equal(new TextDecoder().decode(file.bytes!.slice(0, 5)), '%PDF-')
+  const pkg = await pdfText(file.bytes!)
+  assert.match(pkg, /C1: lookthrough_exposure/)
+  assert.match(pkg, /Investigation package: Finding F1/)
+  assert.match(pkg, /IGI finding F1 version 1/)
+  assert.match(pkg, /print\("```"\)/)
+  // What was sent is what is stored: the package bytes, the assertion text and the payload both render from.
   const [f1] = await db.sql<FindingRow[]>`select * from finding where id = 'F1'`
   assert.equal(sha256(file.bytes!), f1.package_sha256)
   assert.equal(sent[1].payload_sha256, f1.package_sha256)
+  assert.deepEqual([f1.artifacts!.assertion.sha256, f1.artifacts!.package.mediaType], [sent[0].payload_sha256, 'application/pdf'])
+  assert.match(f1.artifacts!.package.renderer!, /Chrome\/[\d.]+ via Puppeteer [\d.]+/)
 
   assert.deepEqual(await stateOf('F1'), { state: 'pending', items: { assertion: 'not-read', file: 'not-read' } })
   await ledger.refreshStatus(cairn, 'r1')
@@ -203,6 +224,6 @@ test('ledger: submit, read back and follow findings through Cairn', { skip }, as
   assert.equal(await ledger.newVersion({ runId: RUN, id: 'F1' }), 2)
   assert.equal((await stateOf('F1', 2)).state, 'not_submitted')
   entries = await ledger.submitFinding(cairn, ref('F1', 2))
-  assert.deepEqual(entries.map((e) => [e.source_reference, e.outcome]), [['IGI review r1, finding F1 v2', 'submitted'], ['IGI review r1, finding F1 v2', 'submitted']])
-  assert.equal(fake.candidates.at(-1)!.filename, 'IGI-r1-F1-v2.md')
+  assert.deepEqual(entries.map((e) => [e.source_reference, e.outcome]), [[`IGI r1, run ${tag}, F1 v2`, 'submitted'], [`IGI r1, run ${tag}, F1 v2`, 'submitted']])
+  assert.equal(fake.candidates.at(-1)!.filename, `IGI-r1-${tag}-F1-v2.pdf`)
 })

@@ -9,7 +9,8 @@ import { abs, dec, fmt } from './decimal.ts'
 import { limitUnit, show, type ClaimResult, type CoverageResult } from './evidence.ts'
 import { getFile, putFile, retainSources } from './files.ts'
 import { findingState, itemState, refreshStatus, PACK_STEP, type ItemState, type Kind, type LedgerEntry } from './ledger.ts'
-import { basisWords, CHECKED_SCOPE } from './package.ts'
+import { basisWords, CHECKED_SCOPE, runTag } from './package.ts'
+import { renderPdf } from './render.ts'
 import { importReview } from './sources.ts'
 
 // One accepted item: its candidate id, the evidence Cairn reported for it, and the SHA-256 of what IGI sent.
@@ -70,6 +71,7 @@ export type CommitteeAction = { action_id: string; action: string; owner: string
 export type PackSubmission = {
   outcome: 'sending' | 'submitted' | 'refused' | 'uncertain'
   sentAt: string
+  sha256: string // of the PDF bytes sent
   candidateId: string | null
   placement: string | null
   errorCode: string | null
@@ -85,6 +87,10 @@ export type PackRow = {
   snapshot_sha256: string
   file_key: string
   file_sha256: string
+  // The PDF printed from the HTML file, which remains the preview, and what printed it; null for a pack from before PDFs.
+  pdf_key: string | null
+  pdf_sha256: string | null
+  render: { renderer: string; template: string } | null
   stale_at: Date | null
   stale_reason: string | null
   submission: PackSubmission | null
@@ -389,9 +395,15 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
   const html = new TextEncoder().encode(renderPack(snapshot, version, snapshotSha))
   const fileKey = `packs/${reviewId}/v${version}-${snapshotSha.slice(0, 12)}.html`
   putFile(fileKey, html)
+  // The PDF is printed from the same HTML, and the row is written only once both files are stored, so a failed
+  // render leaves no pack behind.
+  const pdf = await renderPdf(new TextDecoder().decode(html), `Committee pack ${reviewId} v${version}, snapshot ${snapshotSha.slice(0, 12)}`)
+  const pdfKey = fileKey.replace(/\.html$/, '.pdf')
+  putFile(pdfKey, pdf.bytes)
+  const render = { renderer: pdf.renderer, template: igiBuild() }
   const [pack] = await sql<PackRow[]>`
-    insert into committee_pack (review_id, version, generated_at, snapshot, snapshot_sha256, file_key, file_sha256)
-    values (${reviewId}, ${version}, ${snapshot.generatedAt}, ${json(snapshot)}, ${snapshotSha}, ${fileKey}, ${sha256(html)})
+    insert into committee_pack (review_id, version, generated_at, snapshot, snapshot_sha256, file_key, file_sha256, pdf_key, pdf_sha256, render)
+    values (${reviewId}, ${version}, ${snapshot.generatedAt}, ${json(snapshot)}, ${snapshotSha}, ${fileKey}, ${sha256(html)}, ${pdfKey}, ${sha256(pdf.bytes)}, ${json(render)})
     returning *`
   return { pack }
 }
@@ -413,20 +425,21 @@ export async function submitPack(cairn: Cairn, reviewId: string, opts: { resend?
   const [review] = await sql<{ cairn_record: RecordSteps | null }[]>`select cairn_record from review where id = ${reviewId}`
   const step = review?.cairn_record?.steps.find((st) => st.name === PACK_STEP)
   const slot = step?.slots.find((sl) => sl.allowedKinds.includes('document'))
-  const bytes = getFile(p.file_key)
-  if (sha256(bytes) !== p.file_sha256) throw new Error(`stored pack ${p.file_key} does not match its recorded hash`)
+  if (!p.pdf_key || !p.pdf_sha256) throw new Error(`pack v${p.version} has no PDF; generate a new pack`)
+  const bytes = getFile(p.pdf_key)
+  if (sha256(bytes) !== p.pdf_sha256) throw new Error(`stored pack ${p.pdf_key} does not match its recorded hash`)
 
   const save = async (s: PackSubmission) => {
     await sql`update committee_pack set submission = ${json(s)} where review_id = ${reviewId} and version = ${p.version}`
     return { ...p, submission: s }
   }
-  const sending: PackSubmission = { outcome: 'sending', sentAt: new Date().toISOString(), candidateId: null, placement: null, errorCode: null, status: null, readAt: null }
+  const sending: PackSubmission = { outcome: 'sending', sentAt: new Date().toISOString(), sha256: p.pdf_sha256, candidateId: null, placement: null, errorCode: null, status: null, readAt: null }
   await save(sending)
   try {
     const r = await cairn.submitFile({
-      filename: `IGI-${reviewId}-committee-pack-v${p.version}.html`,
+      filename: `IGI-${reviewId}-committee-pack-v${p.version}.pdf`,
       bytes,
-      contentType: 'text/html',
+      contentType: 'application/pdf',
       sourceReference: `IGI review ${reviewId}, committee pack v${p.version}`,
       ...(step && slot ? { proposedStepId: step.id, proposedSlotId: slot.id } : {}),
     })
@@ -444,6 +457,10 @@ export async function submitPack(cairn: Cairn, reviewId: string, opts: { resend?
 // pct a fraction as a percentage to 2 places, points the size of a difference of fractions in percentage points,
 // plural a count with its noun. table escapes its headings; its cells and list's items arrive as HTML, already escaped.
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+// A short value that must not break across lines, such as a date (Chromium breaks lines at hyphens).
+const nb = (v: unknown) => `<span class="nb">${esc(v)}</span>`
+// Escaped text whose ISO dates and times are kept whole.
+const dated = (v: unknown) => esc(v).replace(/\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z)?/g, (d) => `<span class="nb">${d}</span>`)
 const label = (classification: string) => classification.replaceAll('_', ' ')
 const pct = (fraction: string) => `${fmt(dec(fraction) * 100n, 2)}%`
 const points = (difference: string) => fmt(abs(dec(difference)) * 100n, 2)
@@ -460,8 +477,8 @@ const GROUPS: [string, string[], string | null][] = [
   ['Data quality and missing information', ['data_quality', 'missing_information'], null],
   ['Lower-priority observations', ['observation', 'explained_anomaly'], 'None.'],
 ]
-const table = (head: string[], body: unknown[][]) =>
-  `<table><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+const table = (head: string[], body: unknown[][], cls = '') =>
+  `<table${cls ? ` class="${cls}"` : ''}><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
 const list = (items: string[]) => `<ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul>`
 
 // Styles inline, so the file stands alone. In print each main section after the first starts a new page.
@@ -472,7 +489,8 @@ table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; font-size:
 .meta, .note { color: #555; font-size: .9rem; } .note { border-left: 3px solid #999; padding-left: .75rem; }
 .bar { display: inline-block; height: .7rem; background: #4a6fa5; } .breach { color: #a02020; font-weight: 600; }
 article { border-top: 1px solid #ccc; } code { font-size: .8rem; word-break: break-all; }
-@media print { body { margin: 0; max-width: none; font-size: 11pt; } h2:not(:first-of-type) { break-before: page; } article, table { break-inside: avoid; } }
+.nb { white-space: nowrap; }
+@media print { body { margin: 0; max-width: none; font-size: 10pt; } h2:not(:first-of-type) { break-before: page; } h3, h4 { break-after: avoid; } thead { display: table-header-group; } tr { break-inside: avoid; } th { white-space: nowrap; } code { font-size: 7.5pt; } table.wide { font-size: 7.5pt; } table.wide code { font-size: 6.5pt; } }
 `
 
 /** The pre-meeting pack (§13.4), from the snapshot alone. Every string from the snapshot is escaped. */
@@ -538,14 +556,14 @@ export function renderPack(s: Snapshot, version: number, snapshotSha: string): s
       const by = `${points(x.margin)} percentage points`
       const result = x.status === 'breach' ? `<span class="breach">${x.limit_type === 'max' ? 'Exceeded by' : 'Below the minimum by'} ${by}</span>` : `Within the limit by ${by}`
       const unit = limitUnit(rule(x.rule_id, x.version)?.metric ?? '')
-      return [esc(`${x.rule_id} v${x.version}`), esc(`${x.limit_type === 'max' ? 'Maximum' : 'Minimum'} ${show(x.threshold, unit)}`), esc(x.at), esc(show(x.value, unit)), result, esc(x.check)]
+      return [esc(`${x.rule_id} v${x.version}`), esc(`${x.limit_type === 'max' ? 'Maximum' : 'Minimum'} ${show(x.threshold, unit)}`), nb(x.at), esc(show(x.value, unit)), result, esc(x.check)]
     })
-    const actions = f.committeeActions.map((a) => [`${esc(a.action_id)}: ${esc(a.action)}`, esc(a.owner), esc(a.due_date || 'standing'), esc(a.status), esc(a.notes)])
+    const actions = f.committeeActions.map((a) => [`${esc(a.action_id)}: ${esc(a.action)}`, esc(a.owner), nb(a.due_date || 'standing'), esc(a.status), esc(a.notes)])
     // Each figure with how IGI checked it, and each whole-population statement with the population it covers. A
     // finding from before claims existed shows its material numbers instead.
     const figures = f.claims
       ? [
-          f.claims.length ? `<h4>Figures, and how IGI checked them</h4>${table(['Figure', 'Value', 'Checked against', 'Applies to'], f.claims.map((c) => [esc(c.label), esc(c.value ?? ''), c.ok ? esc(basisWords(c)) : `<span class="breach">${esc(basisWords(c))}</span>`, esc(c.scope ?? '')]))}` : '',
+          f.claims.length ? `<h4>Figures, and how IGI checked them</h4>${table(['Figure', 'Value', 'Checked against', 'Applies to'], f.claims.map((c) => [esc(c.label), esc(c.value ?? ''), c.ok ? esc(basisWords(c)) : `<span class="breach">${esc(basisWords(c))}</span>`, dated(c.scope ?? '')]))}` : '',
           f.coverage.length ? `<h4>Statements about a whole population</h4>${table(['Statement', 'Portfolios', 'Checks', 'Result'], f.coverage.map((c) => [esc(c.kind.replaceAll('_', ' ')), esc(`${c.portfolios.join(', ')} at ${c.period}`), esc(c.checks.join(', ')), c.ok ? 'Every member covered' : `<span class="breach">${esc(c.reason ?? `Not covered: ${c.missing.join('; ')}`)}</span>`]))}` : '',
           `<p class="note">${esc(CHECKED_SCOPE)}${f.coverage.some((c) => c.kind === 'weights_reconcile') ? ' Weights that reconcile show the sources agree with each other, not that they are right.' : ''}</p>`,
         ].join('\n')
@@ -554,7 +572,7 @@ export function renderPack(s: Snapshot, version: number, snapshotSha: string): s
         : ''
     return `<article id="${esc(f.id)}-v${f.version}">
 <h3>${esc(f.id)}: ${esc(f.title)}</h3>
-<p class="meta">${esc(label(f.classification))}; ${esc(f.materiality)} materiality; portfolios ${esc(f.portfolios.join(', '))}${f.periodEnd ? `; period ending ${esc(f.periodEnd)}` : ''}. IGI finding ${esc(f.id)} version ${f.version}${f.revises ? `, revising ${esc(f.revises)} of the same analysis run, which is kept in the run's record` : ''}.</p>
+<p class="meta">${esc(label(f.classification))}; ${esc(f.materiality)} materiality; portfolios ${esc(f.portfolios.join(', '))}${f.periodEnd ? `; period ending ${esc(f.periodEnd)}` : ''}. IGI finding ${esc(f.id)} version ${f.version} of run ${esc(runTag(f.runId))}${f.revises ? `, revising ${esc(f.revises)} of the same analysis run, which is kept in the run's record` : ''}.</p>
 <p>${esc(f.statement)}</p>
 ${f.policyRule ? `<p><strong>Policy rule:</strong> ${esc(f.policyRule.rule_id)}, version ${esc(f.policyRule.version)}${r ? esc(`: ${r.metric}, ${r.limit_type === 'max' ? 'maximum' : 'minimum'} ${show(r.threshold, limitUnit(r.metric))} (${r.portfolio_id}, policy clause ${r.document_clause})`) : ''}.</p>` : ''}
 ${actions.length ? `<h4>Committee action, as the action log records it</h4>${table(['Action', 'Owner', 'Due', 'Status', 'Notes'], actions)}` : ''}
@@ -567,7 +585,7 @@ ${comparisons.length ? `<h4>Comparison with policy</h4>${table(['Rule', 'Limit',
   })
 
   const outstanding = [
-    s.openActions.length ? `<h3>Previous committee actions not completed</h3><p class="meta">As the action log records them; whether an action was in fact carried out is only what the log says.</p>${table(['Action', 'Owner', 'Due', 'Status'], s.openActions.map((a) => [`${esc(a.action_id)}: ${esc(a.action)}`, esc(a.owner), esc(a.due_date || 'standing'), esc(a.status)]))}` : '<p>Every previous committee action is recorded as completed.</p>',
+    s.openActions.length ? `<h3>Previous committee actions not completed</h3><p class="meta">As the action log records them; whether an action was in fact carried out is only what the log says.</p>${table(['Action', 'Owner', 'Due', 'Status'], s.openActions.map((a) => [`${esc(a.action_id)}: ${esc(a.action)}`, esc(a.owner), nb(a.due_date || 'standing'), esc(a.status)]))}` : '<p>Every previous committee action is recorded as completed.</p>',
     issues.length ? `<h3>Data validation issues</h3>${list(issues.map(esc))}` : '',
     s.counts.notSubmitted ? `<h3>Not submitted for review</h3><p>${plural(s.counts.notSubmitted, 'finding')} from the latest analysis run ${s.counts.notSubmitted === 1 ? 'was' : 'were'} not submitted to Cairn; ${s.counts.notSubmitted === 1 ? 'it is' : 'they are'} not in this pack.</p>` : '',
   ]
@@ -577,7 +595,7 @@ ${comparisons.length ? `<h4>Comparison with policy</h4>${table(['Rule', 'Limit',
   const manifest = s.findings.flatMap((f) =>
     (['assertion', 'package'] as const).map((k) => {
       const e = f[k].evidence
-      return [esc(`${f.id} v${f.version}`), k, esc(e.cairnReference), `<code>${esc(f[k].candidateId)}</code>`, esc(e.filedUtc), `${place(e.stepId)} / ${place(e.slotId)}`, `<code>${esc(f[k].sha256)}</code>`]
+      return [esc(`${f.id} v${f.version}`), k, esc(e.cairnReference), `<code>${esc(f[k].candidateId)}</code>`, dated(e.filedUtc), `${place(e.stepId)} / ${place(e.slotId)}`, `<code>${esc(f[k].sha256)}</code>`]
     }),
   )
   // Every submitted item of a withdrawn or rejected version, with its state in Cairn: what reconciliation left behind.
@@ -623,7 +641,7 @@ ${table(['Rule', 'Version', 'Portfolio', 'Metric', 'Limit', 'Clause'], s.rules.m
 <p>The IGI agent (${esc(s.run.model)}, reasoning effort ${esc(s.run.reasoningEffort)}) investigated the sources with read-only tools, Python in the Monty sandbox (${esc(s.run.montyVersion)}) and trusted deterministic checks in decimal arithmetic. Analysis run ${esc(s.run.id)}, ended ${esc(label(s.run.status))}; IGI code ${esc(buildWords(s.run.igiCommit))}; instructions ${esc(s.run.instructionsSha)}; tools ${esc(s.run.toolsSha)}. Each finding's investigation package holds its checks, with their exact figures, and executed code in full.</p>
 ${s.findings.length ? table(['Finding', 'Checks', 'Python executions'], s.findings.map((f) => [esc(`${f.id} v${f.version}`), esc(f.checks.map((c) => `${c.id} ${c.check} ${c.portfolio_id}`).join('; ') || 'none'), esc(f.executionIds.join(', ') || 'none')])) : ''}
 <h3>Accepted evidence manifest</h3>
-${manifest.length ? table(['Finding', 'Item', 'Cairn evidence', 'Candidate', 'Filed (UTC)', 'Step / slot', 'SHA-256 submitted'], manifest) : '<p>No evidence: the pack has no findings.</p>'}
+${manifest.length ? table(['Finding', 'Item', 'Cairn evidence', 'Candidate', 'Filed (UTC)', 'Step / slot', 'SHA-256 submitted'], manifest, 'wide') : '<p>No evidence: the pack has no findings.</p>'}
 ${excluded.length ? `<h3>Evidence of earlier, withdrawn or rejected versions</h3><p class="meta">None of these is in the pack, and none is active on the record.</p>${table(['Finding', 'In IGI', 'Item', 'Cairn evidence', 'In Cairn'], excluded)}` : ''}
 <h3>Generation</h3>
 <p>Cairn record ${esc(s.recordReference ?? 'none')}. Generated ${esc(s.generatedAt)} by IGI code ${esc(buildWords(s.build))}, from a status read-back made immediately before. Reviewed snapshot SHA-256 <code>${esc(snapshotSha)}</code>.</p>

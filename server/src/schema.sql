@@ -86,6 +86,9 @@ create table if not exists finding (
   check ((withdrawn_at is null) = (withdrawal_reason is null))
 );
 
+-- What a finding version was submitted as: frozen payload, assertion text and package, by key and hash (§12.3).
+alter table finding add column if not exists artifacts jsonb;
+
 -- The submission ledger (§12.4): the row is written before the request is sent.
 create table if not exists cairn_submission (
   id uuid primary key default gen_random_uuid(),
@@ -125,3 +128,7 @@ create table if not exists committee_pack (
 );
 -- The pack submitted to Cairn as a candidate document: outcome, candidate id and the latest read-back (§13.5).
 alter table committee_pack add column if not exists submission jsonb;
+-- The pack's PDF, printed from its HTML (the preview), with its hash and what printed it (§10.4, §13.4).
+alter table committee_pack add column if not exists pdf_key text;
+alter table committee_pack add column if not exists pdf_sha256 text;
+alter table committee_pack add column if not exists render jsonb;

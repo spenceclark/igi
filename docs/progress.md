@@ -279,6 +279,51 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
   - Three open questions were recorded. One says period-end positions don't show the trades behind a weight change.
 - Issue found and resolved: "per policy 2.4" was flagged as an unclaimed figure. A bare decimal now needs two or more places to count, and "policy" joins the reference words.
 
+**Readable outputs: PDFs and plain-text assertions** (spec v0.13, pass 1)
+
+- Spec correction:
+  - v0.13 assumed Cairn renders assertion Markdown. It renders a person's assertion as Markdown but shows an agent's as plain text, filed and in the Tray, keeping line breaks. That is a deliberate Cairn decision, so a link in it never becomes live without a person accepting it.
+  - The spec now asks for structured plain text, and names the PDF renderer: a pinned headless Chromium driven by Puppeteer.
+- Renderer (`server/src/render.ts`):
+  - Puppeteer 25.13.0 with Chrome 155, both pinned. One shared browser per process.
+  - Pages run with JavaScript off, and every request except the page itself is refused.
+  - A4 pages with a footer naming the document and "Page n of N".
+  - npm now blocks package install scripts unless approved. Chrome came from Puppeteer's cache here; the deployment image must install it explicitly, along with fonts.
+- Frozen outputs:
+  - At a finding version's first submission IGI freezes a presentation payload from the run's records. From it, it renders the assertion text and the investigation-package PDF.
+  - All three are stored under `findings/<run>/<id>-v<n>.*` with their hashes, plus the package's render record (renderer and template version), in the finding's new `artifacts` column. Resends read the stored bytes back after checking their hashes.
+  - A version whose Markdown package was stored before this keeps it unchanged.
+- Assertion:
+  - Labelled plain-text sections: finding; key figures and how each was checked; whole-population statements; anything unsupported; why it matters; what is unresolved; evidence; the validation boundary; IGI's ids. No Markdown.
+  - Over 4,000 characters it is refused before anything is stored or sent, never cut. The live run's nine assertions are 1,065 to 1,815 characters.
+- Run-qualified references:
+  - Source references read `IGI <review>, run <tag>, F1 v1`, where the tag is six hex digits of the run id's hash, so two runs' F1 can't be confused.
+  - Package files are named `IGI-<review>-<tag>-F1-v1.pdf`, and pack articles name the run tag.
+- Investigation package PDF: a reviewer's summary first, covering:
+  - the finding and its figures with how each was checked;
+  - whole-population statements;
+  - why it matters;
+  - the validation boundary;
+  - what is unresolved;
+  - an evidence index.
+
+  Then the methodology, sources with their retained copies, each cited check with its typed facts, and the revision history. Appendices carry the full check results and executed code.
+- Committee pack:
+  - The PDF is printed from the same HTML, which stays as the preview. The pack row records `pdf_key`, `pdf_sha256` and the render record, and is written only once both files exist.
+  - `submit-pack` sends the PDF and records its hash. A pack from before PDFs must be regenerated.
+- Issues found and resolved from the extracted text and from page images:
+  - narrow table columns broke words mid-word ("Statu s", "In progr ess"), because every cell allowed breaks anywhere; only code and hashes do now;
+  - dates broke at their hyphens; dates and timestamps are now kept whole;
+  - the evidence manifest's code ran larger than its table text;
+  - timestamps broke mid-number.
+- Verification:
+  - `npm test`: 31 pass. Tests read PDF text with pdfjs-dist 6.4.299 (a dev dependency); type check clean.
+  - The live run's nine findings and their pack were rendered on a database copy with the Cairn test double. The pages were rasterised with Chrome and pdf.js and inspected: an 18-page pack and 3-page packages.
+  - Table headers repeat on continuation pages, every page has its footer, and nothing is clipped.
+- Not yet:
+  - a PDF round trip on real Cairn: the PDF preview, and the plain-text assertion in the Tray and filed views;
+  - the deployment image with Chrome and fonts.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.

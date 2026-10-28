@@ -2,9 +2,11 @@
 // read-back (§12.5), and each finding version's state, withdrawal and new versions (§6.7).
 import { createHash } from 'node:crypto'
 import { type Cairn, CairnRefused, CairnUncertain, type CandidateStatus, type RecordSteps } from './cairn.ts'
-import { json, loadRun, sql, type FindingRow } from './db.ts'
+import { json, loadRun, sql, type FindingArtifacts, type FindingRow, type StoredFile } from './db.ts'
 import { getFile, putFile } from './files.ts'
-import { composeAssertion, composePackage, packageFileName, sourceReference } from './package.ts'
+import { igiBuild } from './build.ts'
+import { composeAssertion, findingPayload, packageHtml, sourceReference } from './package.ts'
+import { renderPdf } from './render.ts'
 import { isCurrent } from './evidence.ts'
 
 // The two items submitted for every finding version: its assertion and its investigation package file.
@@ -94,18 +96,41 @@ export async function openRecord(cairn: Cairn, reviewId: string, config: { subje
 export const ledgerEntries = (f: FindingRef) =>
   sql<LedgerEntry[]>`select * from cairn_submission where run_id = ${f.runId} and finding_id = ${f.id} and finding_version = ${f.version} order by created_at, id`
 
-/** The package bytes for a version: composed and stored at its first submission, read back for every resend. */
-async function packageBytes(f: FindingRow, reviewId: string, run: NonNullable<Awaited<ReturnType<typeof loadRun>>>) {
-  if (f.package_key && f.package_sha256) {
-    const bytes = getFile(f.package_key)
-    if (sha256(bytes) !== f.package_sha256) throw new Error(`stored package ${f.package_key} does not match its recorded hash`)
-    return bytes
-  }
-  const bytes = new TextEncoder().encode(composePackage(f, run.run, reviewId, run.executions, run.checks, run.findings))
-  const key = `packages/${f.run_id}/${f.id}-v${f.version}.md`
-  putFile(key, bytes)
-  await sql`update finding set package_key = ${key}, package_sha256 = ${sha256(bytes)} where run_id = ${f.run_id} and id = ${f.id} and version = ${f.version}`
+/** A stored file's bytes, refused if they no longer match the hash recorded for them. */
+function readStored(s: StoredFile) {
+  const bytes = getFile(s.key)
+  if (sha256(bytes) !== s.sha256) throw new Error(`stored file ${s.key} does not match its recorded hash`)
   return bytes
+}
+
+/**
+ * What a finding version is submitted as (spec §6.5, §12.3): its assertion text and its package file. At the first
+ * submission the presentation payload is frozen from the run's records, and the assertion and the package PDF are
+ * rendered from it; all three are stored with their hashes and the package's render record. Every resend reads them
+ * back. An assertion over Cairn's limit is refused before anything is stored or sent. A version whose package was
+ * stored before PDFs (a Markdown file) keeps it as it was: its bytes are what was, or will be, reviewed.
+ */
+async function prepareFinding(f: FindingRow, reviewId: string, run: NonNullable<Awaited<ReturnType<typeof loadRun>>>) {
+  if (f.artifacts) return { text: new TextDecoder().decode(readStored(f.artifacts.assertion)), bytes: readStored(f.artifacts.package), file: f.artifacts.package }
+  const payload = findingPayload(f, run.run, reviewId, run.executions, run.checks, run.findings)
+  const text = composeAssertion(payload)
+  const base = `findings/${f.run_id}/${f.id}-v${f.version}`
+  const store = (suffix: string, bytes: Uint8Array): StoredFile => {
+    putFile(`${base}${suffix}`, bytes)
+    return { key: `${base}${suffix}`, sha256: sha256(bytes) }
+  }
+  const encode = (s: string) => new TextEncoder().encode(s)
+  let file: FindingArtifacts['package']
+  if (f.package_key && f.package_sha256) {
+    readStored({ key: f.package_key, sha256: f.package_sha256 })
+    file = { key: f.package_key, sha256: f.package_sha256, name: `IGI-${reviewId}-${f.id}-v${f.version}.md`, mediaType: 'text/markdown' }
+  } else {
+    const r = await renderPdf(packageHtml(payload), `${payload.packageName}: investigation package, IGI finding ${f.id} v${f.version}`)
+    file = { ...store('.pdf', r.bytes), name: payload.packageName, mediaType: 'application/pdf', renderer: r.renderer, template: igiBuild() }
+  }
+  const artifacts: FindingArtifacts = { payload: store('.payload.json', encode(JSON.stringify(payload))), assertion: store('.assertion.txt', encode(text)), package: file }
+  await sql`update finding set artifacts = ${json(artifacts)}, package_key = ${file.key}, package_sha256 = ${file.sha256} where run_id = ${f.run_id} and id = ${f.id} and version = ${f.version}`
+  return { text, bytes: readStored(file), file }
 }
 
 /**
@@ -132,12 +157,14 @@ export async function submitFinding(cairn: Cairn, ref: FindingRef): Promise<Ledg
   const due = (['assertion', 'file'] as const).filter((k) => [undefined, 'refused', 'abandoned'].includes(latest(k)?.outcome))
   const step = record.steps.find((s) => s.name === stepFor(f))
   const sourceRef = sourceReference(reviewId, f)
+  // Prepared once, and only when something is due: a preparation error (an assertion too long) sends nothing.
+  const prepared = due.length ? await prepareFinding(f, reviewId, run) : undefined
 
   for (const kind of due) {
     const slot = step?.slots.find((s) => s.allowedKinds.includes(kind === 'assertion' ? 'assertion' : 'document'))
     const proposal = step && slot ? { proposedStepId: step.id, proposedSlotId: slot.id } : {}
-    const text = kind === 'assertion' ? composeAssertion(f, run.run.id, reviewId) : undefined
-    const bytes = kind === 'file' ? await packageBytes(f, reviewId, run) : undefined
+    const text = kind === 'assertion' ? prepared!.text : undefined
+    const bytes = kind === 'file' ? prepared!.bytes : undefined
     const [entry] = await sql<{ id: string }[]>`
       insert into cairn_submission (run_id, finding_id, finding_version, kind, payload_sha256, source_reference, proposed_step_id, proposed_slot_id)
       values (${f.run_id}, ${f.id}, ${f.version}, ${kind}, ${sha256(text ?? bytes!)}, ${sourceRef}, ${proposal.proposedStepId ?? null}, ${proposal.proposedSlotId ?? null})
@@ -146,7 +173,7 @@ export async function submitFinding(cairn: Cairn, ref: FindingRef): Promise<Ledg
       const r =
         text !== undefined
           ? await cairn.submitAssertion({ assertionText: text, sourceReference: sourceRef, ...proposal })
-          : await cairn.submitFile({ filename: packageFileName(reviewId, f), bytes: bytes!, contentType: 'text/markdown', sourceReference: sourceRef, ...proposal })
+          : await cairn.submitFile({ filename: prepared!.file.name, bytes: bytes!, contentType: prepared!.file.mediaType, sourceReference: sourceRef, ...proposal })
       await sql`update cairn_submission set outcome = 'submitted', candidate_id = ${r.candidateId}, placement = ${r.placement} where id = ${entry.id}`
     } catch (e) {
       if (e instanceof CairnRefused) await sql`update cairn_submission set outcome = 'refused', error_code = ${e.code} where id = ${entry.id}`

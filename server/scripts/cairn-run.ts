@@ -15,6 +15,7 @@ import { cairnClient, type RecordSteps } from '../src/cairn.ts'
 import { checkPacks, excludedItems, generatePack, listPacks, reconcileAdvice, resolveFindings, submitPack, type PackSubmission } from '../src/committee-pack.ts'
 import { loadRun, migrate, sql, type FindingRow } from '../src/db.ts'
 import { filePath } from '../src/files.ts'
+import { closeRenderer } from '../src/render.ts'
 import { ledgerEntries, newVersion, openRecord, placementGaps, submitFinding, withdrawFinding } from '../src/ledger.ts'
 import { isCurrent } from '../src/evidence.ts'
 
@@ -124,11 +125,12 @@ if (command === 'status') {
 if (command === 'pack') {
   const r = await generatePack(cairn, reviewId)
   if ('blockers' in r) for (const b of r.blockers) console.log(`Blocked: ${b.finding && !b.reason.startsWith(`${b.finding.id} v`) ? `${b.finding.id} v${b.finding.version} ` : ''}${b.reason}`)
-  else console.log(`Pack v${r.pack.version} with ${r.pack.snapshot.findings.length} findings: ${filePath(r.pack.file_key)}`)
+  else console.log(`Pack v${r.pack.version} with ${r.pack.snapshot.findings.length} findings: ${filePath(r.pack.pdf_key!)} (preview ${filePath(r.pack.file_key)})`)
 }
 
 if (command === 'submit-pack') {
   const p = await submitPack(cairn, reviewId, { resend: ids.includes('--resend') })
   console.log(`Pack v${p.version}: ${packSubmission(p.submission!)}${p.submission!.placement ? `, ${p.submission!.placement}` : ''}. A person files or discards it in Cairn.`)
 }
+await closeRenderer() // submitting and generating print PDFs in a shared browser
 await sql.end()

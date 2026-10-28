@@ -10,13 +10,17 @@ import { cairnClient } from '../src/cairn.ts'
 import { cairnFake } from '../src/cairn-fake.ts'
 import { getFile } from '../src/files.ts'
 import { importReview } from '../src/sources.ts'
-import { CONFIG, finding, resetDatabase, useTestDatabase } from './helpers.ts'
+import { closeRenderer } from '../src/render.ts'
+import { CONFIG, finding, pdfText, resetDatabase, useTestDatabase } from './helpers.ts'
 
 const skip = await useTestDatabase('pack')
 const db = await import('../src/db.ts')
 const ledger = await import('../src/ledger.ts')
 const pack = await import('../src/committee-pack.ts')
-after(() => db.sql.end())
+after(async () => {
+  await closeRenderer()
+  await db.sql.end()
+})
 
 const DEV01 = fileURLToPath(new URL('../../fixtures/scenarios/dev-01', import.meta.url))
 const RUN = 'run-r1-1'
@@ -167,9 +171,9 @@ test('pack: only current findings count; a rejected revision is kept but never s
   for (const id of ['F1', 'F4']) for (const e of await ledger.submitFinding(cairn, ref(id))) fake.file(e.candidate_id!)
   // The revision's package carries what IGI checked and the finding it revised.
   const [row] = await db.sql<{ package_key: string }[]>`select package_key from finding where id = 'F4'`
-  const pkg = new TextDecoder().decode(getFile(row.package_key))
-  assert.match(pkg, /## What IGI checked[\s\S]*Checked: Equity exposure 36\.97%, exposure \(P-CAU, equity, 2026-09-30\); IGI check C1:exposure/)
-  assert.match(pkg, /## Revision history[\s\S]*### F3: Earlier wording/)
+  const pkg = await pdfText(getFile(row.package_key))
+  assert.match(pkg, /Key figures and how IGI checked them[\s\S]*Equity exposure\s+36\.97%\s+IGI check C1:exposure\s+P-CAU, equity,\s+2026-09-30/)
+  assert.match(pkg, /Revision history[\s\S]*F3: Earlier wording/)
   const r = await pack.generatePack(cairn, 'r1')
   assert.ok('pack' in r, reasons(r).join('\n'))
   const html = new TextDecoder().decode(getFile(r.pack.file_key))
@@ -278,7 +282,7 @@ test('pack: evidence of a withdrawn or rejected version must not stand on the re
   assert.match(html, /left 1 matter unresolved/)
   assert.match(html, /<h2>Matters the analysis could not resolve<\/h2>[\s\S]*Whether the manager reported the breach is not recorded/)
   const article = (id: string) => html.slice(html.indexOf(`<article id="${id}"`), html.indexOf('</article>', html.indexOf(`<article id="${id}"`)))
-  assert.match(article('F1-v2'), /<td>CAU-EQ-MAX v1<\/td><td>Maximum 35\.00%<\/td><td>2026-09-30<\/td><td>36\.97%<\/td><td><span class="breach">Exceeded by 1\.97 percentage points<\/span><\/td>/)
+  assert.match(article('F1-v2'), /<td>CAU-EQ-MAX v1<\/td><td>Maximum 35\.00%<\/td><td><span class="nb">2026-09-30<\/span><\/td><td>36\.97%<\/td><td><span class="breach">Exceeded by 1\.97 percentage points<\/span><\/td>/)
   assert.ok(!article('F1-v2').includes('CAU-SH'), 'a comparison on a measure other than the named rule is left out')
   assert.ok(!article('F4-v1').includes('Comparison with policy'), 'an outstanding action shows no comparison table')
   assert.ok(!article('F5-v1').includes('Comparison with policy'), 'nor does a finding that names no rule, whatever its checks compare')
@@ -292,8 +296,16 @@ test('pack: evidence of a withdrawn or rejected version must not stand on the re
   // The pack itself goes to Cairn as a candidate document for the pack step; a person files it.
   const sent = await pack.submitPack(cairn, 'r1')
   const candidate = fake.candidates.at(-1)!
-  assert.deepEqual([sent.submission!.outcome, candidate.filename, candidate.proposedStepId], ['submitted', `IGI-r1-committee-pack-v${sent.version}.html`, stepOf('Committee pack preparation').id])
-  assert.equal(sha256(candidate.bytes!), sent.file_sha256)
+  assert.deepEqual([sent.submission!.outcome, candidate.filename, candidate.proposedStepId], ['submitted', `IGI-r1-committee-pack-v${sent.version}.pdf`, stepOf('Committee pack preparation').id])
+  assert.equal(sha256(candidate.bytes!), sent.pdf_sha256, 'the exact stored PDF is what was sent')
+  assert.equal(sent.submission!.sha256, sent.pdf_sha256)
+  // The PDF is printed from the same snapshot as the preview: its text carries the findings and the snapshot hash.
+  const printed = await pdfText(candidate.bytes!)
+  assert.match(printed, /Investment Committee pre-meeting pack/)
+  assert.match(printed, /Policy exceptions[\s\S]*F1/)
+  assert.match(printed, new RegExp(`Committee pack r1 v${sent.version}, snapshot ${sent.snapshot_sha256.slice(0, 12)}`), 'every page names the pack and its snapshot')
+  assert.match(printed, /Page 1 of \d+/)
+  assert.match(sent.render!.renderer, /Chrome\/[\d.]+ via Puppeteer [\d.]+/)
   await assert.rejects(pack.submitPack(cairn, 'r1'), /already submitted/)
   fake.file(candidate.candidateId)
   await pack.checkPacks(cairn, 'r1')
