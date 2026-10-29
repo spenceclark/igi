@@ -13,7 +13,10 @@ export type ReviewListItem = {
   latest_run: { id: string; status: string; started_at: string } | null
   latest_pack: number | null
 }
-export type SourceSummary = { source: string; file: string; sha256: string; description: string; rows?: number; sections?: string[]; fields?: Record<string, string>; validation_issues: string[] }
+export type SourceSummary = { source: string; file: string; sha256: string; description: string; rows?: number; sections?: string[]; fields?: Record<string, string>; validation_issues: string[]; format: string; extractor?: string }
+// Where a row is in its source file, where any field came from elsewhere, the original text of values that were
+// normalised, and the formula behind any value that is a formula's cached result.
+export type Provenance = { location: string; fields?: Record<string, string>; original?: Record<string, string>; formulas?: Record<string, string> }
 export type Upload = { file: string; sha256: string; uploaded_at: string }
 export type RunSummary = { id: string; status: string; started_at: string; ended_at: string | null; turns: number; tool_calls: number; usage: { costUsd?: number } | null; summary: string | null }
 export type CairnRecord = { cairnReference: string; procedureName: string; procedureVersion: number; subjectReference: string; subjectName?: string | null }
@@ -127,7 +130,7 @@ export const api = {
     for (const f of files) form.append('files', f, f.name)
     return call<{ uploaded: Upload[] }>('POST', `/api/reviews/${id}/sources`, form)
   },
-  rows: (id: string, source: string) => call<{ rows: Record<string, string>[]; matching: number }>('GET', `/api/reviews/${id}/sources/${source}/rows?limit=50`),
+  rows: (id: string, source: string) => call<{ rows: Record<string, string>[]; matching: number; provenance: Record<string, Provenance> }>('GET', `/api/reviews/${id}/sources/${source}/rows?limit=50`),
   investigate: (id: string, effort: string) => start(`/api/reviews/${id}/investigate`, { effort }),
   run: (runId: string) => call<RunDetail>('GET', `/api/runs/${runId}`),
   findings: (id: string) => call<FindingsResponse>('GET', `/api/reviews/${id}/findings`),

@@ -1,15 +1,19 @@
-// Import, validation (spec §6.2, §7.3) and bounded reads (§8.2) of a review's sources.
+// Import, validation (spec §6.2, §7.3) and bounded reads (§8.2) of a review's sources. CSV and the Markdown policy
+// document are read here; XLSX, DOCX and PDF files through their documented layouts (formats.ts), into the same rows.
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { parseCsv } from './csv.ts'
 import { abs, dec, div, fmt, isDec, sum } from './decimal.ts'
+import { EXTRACTOR, importDocument, type Provenance } from './formats.ts'
 
 // A CSV row keyed by column name, plus its row_id (`<source>:<n>`).
 export type Row = Record<string, string>
-// One `## ` section of the policy document; its id is the heading's leading number.
-export type Section = { id: string; heading: string; text: string }
-// One source file as imported: its rows (or sections, for the policy document) and its validation issues.
+// One numbered section of the policy document; its id is the heading's leading number. location is where it starts.
+export type Section = { id: string; heading: string; text: string; location?: string }
+// One source as imported: its rows (or sections, for the policy document) and its validation issues. A file in a
+// documented layout may hold several sources (a workbook with a sheet for each). format is the file's; extractor
+// the layout version that read it; labels each field's original header; provenance each row's original location.
 export type Source = {
   id: string
   file: string
@@ -19,6 +23,10 @@ export type Source = {
   rows: Row[]
   sections?: Section[]
   issues: string[]
+  format: 'csv' | 'md' | 'xlsx' | 'docx' | 'pdf' | 'unsupported'
+  extractor?: string
+  labels?: Record<string, string>
+  provenance?: Record<string, Provenance>
 }
 export type Review = { id: string; periodEnd: string; periods: string[]; sources: Source[] }
 
@@ -103,31 +111,66 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
  */
 export function importReview(dir: string, id: string, periodEnd?: string): Review {
   const sources: Source[] = []
+  // Adds a source of a known kind, unless an earlier file already provides that kind: then the later one is kept
+  // with an issue and no rows, so nothing reads two versions of the same data.
+  const add = (s: Source) => {
+    const first = sources.find((x) => x.id === s.id)
+    if (first) sources.push({ ...s, id: `${s.file}#${s.id}`, rows: [], sections: undefined, provenance: undefined, issues: [`also provides ${s.id}, which ${first.file} already does; it is not used`] })
+    else sources.push(s)
+  }
   for (const file of readdirSync(dir).sort()) {
     const bytes = readFileSync(join(dir, file))
     const sha256 = createHash('sha256').update(bytes).digest('hex')
+    const ext = extname(file).toLowerCase()
     const text = bytes.toString('utf8')
-    // The policy document: each `## ` heading starts a section, whose id is its leading number (`## 3. Limits` is 3).
-    if (file.endsWith('.md')) {
+    const policy = (title: string, sections: Section[], format: Source['format']) =>
+      add({ id: 'policy_document', file, sha256, description: `Policy document: ${title}. Human-readable; the structured rules are authoritative for limits.`, fields: {}, rows: [], sections, issues: [], format, ...(format === 'pdf' ? { extractor: EXTRACTOR } : {}) })
+    // The Markdown policy document: each `## ` heading starts a section, whose id is its leading number (`## 3. Limits` is 3).
+    if (ext === '.md') {
+      const lines = text.split('\n')
       const sections = text.split(/^## /m).slice(1).map((s) => {
         const [heading, ...body] = s.split('\n')
-        return { id: heading.split('.')[0].trim(), heading: heading.trim(), text: body.join('\n').trim() }
+        return { id: heading.split('.')[0].trim(), heading: heading.trim(), text: body.join('\n').trim(), location: `line ${lines.findIndex((l) => l === `## ${heading}`) + 1}` }
       })
-      const title = /^# (.+)$/m.exec(text)?.[1] ?? file
-      sources.push({ id: 'policy_document', file, sha256, description: `Policy document: ${title}. Human-readable; the structured rules are authoritative for limits.`, fields: {}, rows: [], sections, issues: [] })
+      policy(/^# (.+)$/m.exec(text)?.[1] ?? file, sections, 'md')
+      continue
+    }
+    // An XLSX, DOCX or PDF file: each table it holds in a documented layout becomes a source, in the CSV kind's
+    // fields; a policy PDF becomes the policy document. A file that can't be read is kept with the reason.
+    if (ext === '.xlsx' || ext === '.docx' || ext === '.pdf') {
+      const format = ext.slice(1) as Source['format']
+      let doc
+      try {
+        doc = importDocument(file, new Uint8Array(bytes), sha256)
+      } catch (e) {
+        sources.push({ id: file, file, sha256, description: 'Unreadable source', fields: {}, rows: [], issues: [(e as Error).message], format })
+        continue
+      }
+      if (doc.policy) policy(doc.policy.title, doc.policy.sections, format)
+      for (const t of doc.tables) {
+        const k = KINDS[t.kind]
+        const rows = t.rows.map((r, i) => ({ row_id: `${t.kind}:${i + 1}`, ...Object.fromEntries(Object.keys(k.fields).map((f) => [f, r[f] ?? ''])) }))
+        add({ id: t.kind, file, sha256, description: k.description, fields: k.fields, rows, issues: t.issues, format, extractor: EXTRACTOR, labels: t.labels, provenance: Object.fromEntries(rows.map((r, i) => [r.row_id, t.provenance[i]])) })
+      }
+      if (!doc.policy && !doc.tables.length) sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: doc.issues, format })
+      continue
+    }
+    if (ext !== '.csv') {
+      sources.push({ id: file, file, sha256, description: 'Unsupported source', fields: {}, rows: [], issues: [`${ext || 'files without an extension'} is not a supported format; use CSV, XLSX, DOCX, a text-based PDF or the Markdown policy document`], format: 'unsupported' })
       continue
     }
     // A CSV's kind is the one whose fields match its header exactly; anything else is kept with an issue.
     const [header, ...data] = parseCsv(text)
     const kind = Object.entries(KINDS).find(([, k]) => Object.keys(k.fields).join() === header.join())
     if (!kind) {
-      sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: [`unrecognised columns: ${header.join(', ')}`] })
+      sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: [`unrecognised columns: ${header.join(', ')}`], format: 'csv' })
       continue
     }
     const [kid, k] = kind
-    // Each row gets the id findings cite: `<source>:<n>`, counting data rows from 1 (the header isn't counted).
+    // Each row gets the id findings cite: `<source>:<n>`, counting data rows from 1 (the header isn't counted), and
+    // its line in the file (the header is line 1; a quoted value spanning lines would shift later ones).
     const rows = data.map((r, i) => ({ row_id: `${kid}:${i + 1}`, ...Object.fromEntries(header.map((h, j) => [h, (r[j] ?? '').trim()])) }))
-    sources.push({ id: kid, file, sha256, description: k.description, fields: k.fields, rows, issues: [] })
+    add({ id: kid, file, sha256, description: k.description, fields: k.fields, rows, issues: [], format: 'csv', provenance: Object.fromEntries(rows.map((r, i) => [r.row_id, { location: `line ${i + 2}` }])) })
   }
   const dates = [...new Set(table(sources, 'positions').map((r) => r.period_end))].sort()
   const end = periodEnd ?? dates.at(-1) ?? ''

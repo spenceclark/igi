@@ -60,7 +60,9 @@ export type Snapshot = {
   places: Record<string, string> // the record's step and slot names by id
 
   run: { id: string; status: string; model: string; reasoningEffort: string; montyVersion: string; igiCommit: string; instructionsSha: string; toolsSha: string }
-  sources: { file: string; sha256: string; key: string; rows: number; issues: string[] }[]
+  // One entry per source: a workbook holding several (holdings and returns, say) appears once for each. id and
+  // format are absent from packs made before.
+  sources: { id?: string; format?: string; file: string; sha256: string; key: string; rows: number; issues: string[] }[]
   // exposure is null where a holding has no look-through data at the period, so the exposure is unknown.
   portfolios: { id: string; name: string; objective: string; benchmark: string; allocation: { period: string; assetClass: string; exposure: string | null }[] }[]
   rules: { rule_id: string; version: string; portfolio_id: string; metric: string; limit_type: string; threshold: string; document_clause: string }[]
@@ -360,7 +362,7 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
       instructionsSha: run.config.instructions_sha,
       toolsSha: run.config.tools_sha,
     },
-    sources: data.sources.map((s, i) => ({ file: s.file, sha256: s.sha256, key: keys[i], rows: s.rows.length, issues: s.issues })),
+    sources: data.sources.map((s, i) => ({ id: s.id, format: s.format, file: s.file, sha256: s.sha256, key: keys[i], rows: s.rows.length, issues: s.issues })),
     portfolios: rows('portfolios').map((p) => ({
       id: p.portfolio_id,
       name: p.portfolio_name,
@@ -682,7 +684,7 @@ ${outstanding.join('\n')}
 
 <h2>Appendix</h2>
 <h3>Data source register</h3>
-${table(['File', 'Rows', 'Issues', 'SHA-256'], s.sources.map((x) => [esc(x.file), x.rows, x.issues.length, `<code>${esc(x.sha256)}</code>`]))}
+${table(['Source', 'File', 'Rows', 'Issues', 'SHA-256'], s.sources.map((x) => [esc(x.id ?? ''), esc(x.file), x.rows, x.issues.length, `<code>${esc(x.sha256)}</code>`]))}
 <p class="meta">Each file is retained unchanged in IGI's file store under sources/&lt;SHA-256&gt;/&lt;file&gt;.</p>
 <h3>Policy rules in force at ${esc(s.periodEnd)}</h3>
 ${table(['Rule', 'Version', 'Portfolio', 'Metric', 'Limit', 'Clause'], s.rules.map((r) => [esc(r.rule_id), esc(r.version), esc(r.portfolio_id), esc(r.metric), esc(`${r.limit_type} ${show(r.threshold, limitUnit(r.metric))}`), esc(r.document_clause)]))}

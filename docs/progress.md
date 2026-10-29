@@ -373,12 +373,66 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
   - Every tab was walked through in a browser on the `dev-01-claims` review, including a finding's assertion as sent and the filed pack.
 - Not yet: deployment, parked for now. It needs a container image with Chrome and fonts, a Spaces file store, and the DigitalOcean resources.
 
+**Realistic sources: XLSX, DOCX and PDF imports with provenance** (spec v0.13, pass 3, §7.1, §7.5)
+
+- Readers, all without new dependencies apart from pdfjs, which moves from a test-only to a runtime dependency:
+  - `zip.ts` reads the container under XLSX and DOCX with limits enforced while inflating: at most 2,000 entries and 50 MB expanded in all. A small file that inflates hugely is refused, as are encrypted entries, ZIP64 and unknown compression. XML entities beyond the five predefined ones and character references are never expanded.
+  - `xlsx.ts` reads cells with shared and inline strings, booleans, errors, and dates (from serial numbers and the cell's number format). Excel's 17-digit doubles are read to its 15 significant digits. A formula's cached result is kept with the formula's text. A formula with no cached result, or one reading another workbook, gives no value and an issue. Encrypted and legacy binary Office files are refused by their first bytes.
+  - `docx.ts` reads the body's paragraphs, with their styles, and its tables in order, located by paragraph number and table/row/cell rather than page.
+  - `pdf.ts` runs pdfjs in a child process (`pdf-worker.ts`) with a 30-second timeout and a 256 MB heap, which keeps `importReview` synchronous. Lines and table cells are rebuilt from text positions; results are cached by file hash. An encrypted PDF, a PDF with no text layer (a scan) and an unreadable one are refused with the reason.
+- Documented layouts (`formats.ts`), recognised by their header labels:
+  - workbooks: holdings, returns, portfolios, limits, look-through exposures, fees and an action log;
+  - the DOCX minutes' action table, with the meeting date from its "Meeting held on …" paragraph;
+  - the PDF fee schedule, one column per period, turned into a row per fund and period;
+  - the PDF policy document, with numbered sections found by heading size and pattern, page footers dropped, and words broken at a hyphen joined back.
+  - Each becomes the same canonical rows and row ids as its CSV.
+  - A percentage written without % is refused as unitless, rather than read as a fraction.
+- Provenance on every row:
+  - its location (sheet Holdings, row 5 (A5:G5); page 1, fee table row 3; table 1, row 2; line 6 of a CSV);
+  - where any field came from elsewhere (a period from a column header, a meeting date from a paragraph);
+  - the original text of any normalised value ("0.40%", "30 September 2026");
+  - the formula behind any cached value;
+  - plus each source's format, layout version and original header labels.
+  - The Sources tab shows them, and investigation packages list each cited row with its file and location.
+- Import dispatch is by extension. A second file of a kind already provided is kept with an issue and not used. A file in no documented layout, an unsupported extension, and legacy or macro-enabled Office uploads (refused at upload) are reported with the reason. One file may hold several sources, so the pack's source register now names each source.
+- Fixtures:
+  - `node fixtures/generate.ts` also writes `dev-01-docs` and `dev-02-docs` (`fixtures/documents.ts`). Each holds a valuation-report workbook (holdings with each weight as a rounded formula, and returns), a model-portfolios workbook (portfolios and authoritative limits), a fund-exposures workbook, a fee-schedule PDF, the investment-policy PDF and the committee-minutes DOCX.
+  - They carry the same rows as the CSV scenarios, which are unchanged, and each has its own answer key.
+  - PDF creation dates are fixed, so regenerating gives identical bytes. The minutes' prose is neutral boilerplate.
+- Verification:
+  - Both docs variants import to the same values and row ids as their CSVs, with every row located and no issues. `eval/verify-checks.ts` passes for all four scenarios.
+  - Quoted figures (an action threshold from the DOCX, a policy figure from the PDF) validate identically to the CSV and Markdown versions.
+  - New tests cover formulas with no cached result, another workbook's values, unitless figures, 17-digit doubles, an encrypted/legacy file, an archive that inflates past the limit, a scanned and a broken PDF, unrecognised layouts, a duplicate source, minutes without a date, and instructions written into a cell, which stay data.
+  - The end-to-end API test now uploads the realistic files and checks row locations and the package's cited-row locations.
+  - `npm test`: 48 pass, none skipped. Both type checks and the web build are clean. The Sources tab was checked in the browser on a local review over `dev-01-docs`.
+- Issues found and resolved:
+  - pdfjs 6 no longer has the `isEvalSupported` option.
+  - The PDF text layer has no list markers, so section text compares with Markdown's `- ` markers dropped.
+  - PDF creation dates changed the fixture bytes on every regeneration; they are now fixed.
+- For whoever regenerates fixtures:
+  - `node fixtures/generate.ts` now needs Puppeteer's Chrome and runs asynchronously.
+  - The PDFs are byte-stable only on the same Chrome build; another machine or a Chrome upgrade writes different bytes. Treat the `-docs` folders as committed artefacts and regenerate them deliberately.
+  - `.gitattributes` marks PDF, XLSX and DOCX files binary, so no checkout converts their line endings.
+- Not yet:
+  - Files saved by Excel and Word themselves: the readers follow the formats, but were exercised on files IGI's own writers produced.
+  - Encrypted PDFs: refusal relies on pdfjs's password error, which is untested here.
+- Live run on the docs variant (review `dev-01-docs`, no Cairn calls):
+  - `completed_with_uncertainties` in 27 turns, 44 tool calls, 3 Python runs and 18 checks, for $0.34.
+  - It proposed the same eight current findings as the CSV run, all validated: the two breaches, two outstanding actions, the action verified as met, the fee change, every other limit met, and the data reconciling with complete look-through.
+  - Four revisions, none caused by the formats; each corrected the model's own claim construction:
+    - an exposure claim without its asset class;
+    - a comparison naming the wrong inputs, twice;
+    - a June figure claimed without its period;
+    - whole-population wording with no coverage.
+  - Both figures quoted from the DOCX minutes' action table validated against the extracted text, as they do against the CSV: the notification threshold and the reduction cap.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.
 - Gate B observations for later: Spark sweeps every catalogue check across every portfolio before forming hypotheses, so the checks, not Python, do most of the discovery. The holdout therefore needs at least one issue type no catalogue check covers; the overdue-action findings show Spark can find those. Classifications for the notification trigger vary between runs (observation, outstanding action).
 - The leak scan is a throwaway script; make it part of the evaluation harness so it runs before every evaluation.
 - Re-run the Monty smoke test on the DigitalOcean service at first deploy.
+- XLSX and DOCX files are parsed in the server process. A workbook built to make the readers' patterns backtrack could stall it; PDFs already run in a time- and memory-limited child. Move document parsing into that worker before sources come from anyone but the operator.
 
 **Specification audit — 29 October 2026**
 
@@ -528,3 +582,11 @@ Done in a separate worktree while another session works on the Fri 30 – Sat 31
   - the slide deck (stretch);
   - holdout scenarios, which are written after the freeze.
 - Overlap with the other workstream, for merging: `refreshStatus` (`ledger.ts`), the pack submission read in `checkPacks` (`committee-pack.ts`), the Cairn client's Retry-After (`cairn.ts`), the fraction description (`sources.ts`) and the claims example (`tools.ts`). Each change is a few lines. Wherever a test moves the fake's clock, it now passes the same clock to the client as `now`.
+
+**Merged with the realistic-sources work**
+
+- `.gitattributes`: the scenario folders keep LF, and the binary rules for PDF, XLSX and DOCX come after that line, so they win for the `-docs` documents. The merged checkout's documents are byte for byte the committed ones.
+- Issue found and resolved: the scorer recognised a run's scenario by comparing the number of sources in its config with the number of files. A workbook holds several sources, so no `-docs` run matched. Files are now counted once.
+- Regenerating gave the `-docs` answer keys the same evidence anchors as their CSV twins (rule version, action, check). The generator wrote the documents byte-identical.
+- The live `dev-01-docs` run now scores 3/3 issues: benign explained, no false positives, 4/4 material findings validated, checks 18/18 and Python 3/3 re-run. Leak scan clean on all four scenarios; 57 server tests and the 2 scorer tests pass.
+- Still to do: the journey test covers CSV only, so an XLSX upload in it would extend it to the new importers.

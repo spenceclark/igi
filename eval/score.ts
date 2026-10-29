@@ -62,9 +62,13 @@ function scenarioHashes(key: AnswerKey): Map<string, Set<string>> {
   return out
 }
 
-/** The scenario whose files a run analysed, by the source hashes in its config, or undefined. */
+/**
+ * The scenario whose files a run analysed, by the source hashes in its config, or undefined. Files are counted once:
+ * a workbook holding several sources appears in the config once for each.
+ */
 function scenarioOf(run: RunRow, keys: { key: AnswerKey; hashes: Map<string, Set<string>> }[]) {
-  return keys.find(({ hashes }) => run.config.sources.length === hashes.size && run.config.sources.every((s) => hashes.get(s.file)?.has(s.sha256)))?.key
+  const files = new Set(run.config.sources.map((s) => s.file))
+  return keys.find(({ hashes }) => files.size === hashes.size && run.config.sources.every((s) => hashes.get(s.file)?.has(s.sha256)))?.key
 }
 
 // What a finding cites, gathered from its policy rule, claims, coverage, cited rows and text.

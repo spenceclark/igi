@@ -11,7 +11,7 @@ import type { Cairn, RecordSteps } from './cairn.ts'
 import { excludedItems, listPacks, markStalePacks, packBlockers, reconcileAdvice, resolveFindings, type PackRow } from './committee-pack.ts'
 import { loadRun, sql, type FindingRow, type RunRow } from './db.ts'
 import { getFile } from './files.ts'
-import { abandonEntry, ledgerEntries, newVersion, withdrawFinding } from './ledger.ts'
+import { abandonEntry, ledgerEntries, newVersion, rowLocations, withdrawFinding } from './ledger.ts'
 import { AlreadyRunning, listOperations, type Operation } from './operations.ts'
 import { composeAssertion, findingPayload, packageHtml, runTag } from './package.ts'
 import { renderPdf } from './render.ts'
@@ -107,11 +107,13 @@ export function igiServer(o: ServerOptions) {
     ['GET', /^\/api\/reviews\/([\w-]+)$/, async (c) => {
       const r = await reviewRow(c.params[0])
       const files = await currentSources(r.id)
-      // The import check of the current sources, so issues show before any investigation.
-      let sources: ReturnType<typeof sourceSummary> = []
+      // The import check of the current sources, so issues show before any investigation, with each source's format
+      // and the layout version that read it.
+      let sources: (ReturnType<typeof sourceSummary>[number] & { format: string; extractor?: string })[] = []
       let importError: string | null = null
       try {
-        sources = sourceSummary(importReview(await reviewDir(r.id), r.id, await reviewPeriod(r.id)))
+        const review = importReview(await reviewDir(r.id), r.id, await reviewPeriod(r.id))
+        sources = sourceSummary(review).map((x, i) => ({ ...x, format: review.sources[i].format, extractor: review.sources[i].extractor }))
       } catch (e) {
         importError = (e as Error).message
       }
@@ -140,8 +142,11 @@ export function igiServer(o: ServerOptions) {
       return { uploaded: stored }
     }],
     ['GET', /^\/api\/reviews\/([\w-]+)\/sources\/([\w-]+)\/rows$/, async (c) => {
+      // The rows as the agent reads them, each with where it is in its file and what was normalised or computed there.
       const review = importReview(await reviewDir(c.params[0]), c.params[0], await reviewPeriod(c.params[0]))
-      return readData(review, { source: c.params[1], limit: Number(c.url.searchParams.get('limit') ?? 50) } as ReadArgs)
+      const read = readData(review, { source: c.params[1], limit: Number(c.url.searchParams.get('limit') ?? 50) } as ReadArgs)
+      const provenance = review.sources.find((s) => s.id === read.source)?.provenance ?? {}
+      return { ...read, provenance: Object.fromEntries(read.rows.map((r) => [r.row_id, provenance[r.row_id]]).filter(([, p]) => p)) }
     }],
 
     // Investigation: start one, and read a run with its whole trace.
@@ -180,7 +185,7 @@ export function igiServer(o: ServerOptions) {
       const f = await findingRow(c.params[0], c.params[1], Number(c.params[2]))
       if (f.artifacts) return f.artifacts.package.mediaType === 'application/pdf' ? pdf(getFile(f.artifacts.package.key), f.artifacts.package.name) : { type: 'text/markdown; charset=utf-8', body: getFile(f.artifacts.package.key) }
       const run = (await loadRun(f.run_id))!
-      const payload = findingPayload(f, run.run, run.run.review_id, run.executions, run.checks, run.findings)
+      const payload = findingPayload(f, run.run, run.run.review_id, run.executions, run.checks, run.findings, rowLocations(run.run.review_id, run.run.config.sources))
       return pdf((await renderPdf(packageHtml(payload), `PREVIEW, not submitted: ${payload.packageName}`)).bytes, `PREVIEW-${payload.packageName}`)
     }],
     ['POST', /^\/api\/findings\/([\w-]+)\/(F\d+)\/(\d+)\/withdraw$/, async (c) => {

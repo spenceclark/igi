@@ -1,10 +1,13 @@
 // Development scenario generator (spec §7, §15.2). Writes neutral source files to
-// fixtures/scenarios/<name>/ and the answer key to eval/answer-keys/<name>.json.
+// fixtures/scenarios/<name>/ as CSV, the same rows as XLSX, PDF and DOCX documents to
+// fixtures/scenarios/<name>-docs/ (documents.ts), and the answer key for each to eval/answer-keys/.
 // The server never imports this file or reads eval/.
 // Run from the repository root: node fixtures/generate.ts [name ...]
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { abs, dec, div, fmt, mul, sum, type Dec } from '../server/src/decimal.ts'
 import { toCsv } from '../server/src/csv.ts'
+import { closeRenderer } from '../server/src/render.ts'
+import { writeDocuments } from './documents.ts'
 
 const Q2 = '2026-06-30'
 const Q3 = '2026-09-30'
@@ -165,7 +168,7 @@ const assert = (ok: boolean, msg: string) => {
   if (!ok) throw new Error(`incoherent scenario: ${msg}`)
 }
 
-function generate(name: string, s: Scenario) {
+async function generate(name: string, s: Scenario) {
   const rng = mulberry32(s.seed)
   const ids: Record<string, string> = {}
   for (const k of Object.keys(FUNDS)) {
@@ -279,8 +282,14 @@ function generate(name: string, s: Scenario) {
   write('committee_actions.csv', toCsv(Object.keys(actions[0]), actions))
   write('policy_rules.csv', toCsv(Object.keys(rules[0]), rules))
   write('investment_policy.md', policyDocument(s))
-  const key = { scenario: name, seed: s.seed, instrumentIds: Object.fromEntries(Object.entries(ids).map(([k, v]) => [v, FUNDS[k].name])), expectedBreaches: s.expectedBreaches, facts, ...s.answers }
-  writeFileSync(`eval/answer-keys/${name}.json`, JSON.stringify(key, null, 2) + '\n')
+  const performance = PORTFOLIOS.flatMap((p) => PERIODS.map((period, i) => ({ portfolio_id: p.id, period_end: period, portfolio_return: s.returns[p.id][i][0], benchmark_return: s.returns[p.id][i][1] })))
+  const portfolios = PORTFOLIOS.map((p) => ({ portfolio_id: p.id, portfolio_name: p.name, objective: p.objective, benchmark: p.benchmark }))
+  await writeDocuments(`${dir}-docs`, { portfolios, positions, performance, lookthrough, fees, actions, rules, policy: policyDocument(s) })
+  // The same answer key for both folders: they hold the same data.
+  for (const scenario of [name, `${name}-docs`]) {
+    const key = { scenario, seed: s.seed, instrumentIds: Object.fromEntries(Object.entries(ids).map(([k, v]) => [v, FUNDS[k].name])), expectedBreaches: s.expectedBreaches, facts, ...s.answers }
+    writeFileSync(`eval/answer-keys/${scenario}.json`, JSON.stringify(key, null, 2) + '\n')
+  }
   console.log(`${name}: ${positions.length} positions, breaches ${breaches.join(', ')}`)
 }
 
@@ -325,4 +334,5 @@ ${PORTFOLIOS.map(section).join('\n')}
 }
 
 const names = process.argv.slice(2)
-for (const name of names.length ? names : Object.keys(SCENARIOS)) generate(name, SCENARIOS[name])
+for (const name of names.length ? names : Object.keys(SCENARIOS)) await generate(name, SCENARIOS[name])
+await closeRenderer()

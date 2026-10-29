@@ -1,1 +1,7 @@
+# Scenario text files keep LF on every checkout: the evaluation identifies a scenario by its files' hashes.
 fixtures/scenarios/** text eol=lf
+# Source documents and generated files are bytes, never text: no line-ending conversion on checkout.
+# These come after the line above, so they win for the documents in fixtures/scenarios/*-docs.
+*.pdf binary
+*.xlsx binary
+*.docx binary

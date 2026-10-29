@@ -57,6 +57,9 @@ export type FindingPayload = {
     assumptions: string[]
     uncertainties: string[]
     citedRows: string[]
+    // Where each cited row is in its source file (positions.csv, line 6; a workbook's sheet, row and cells); absent
+    // from payloads frozen before locations were recorded, and for a row whose source is no longer retained.
+    citedRowLocations?: Record<string, string>
     revisionOf: string | null
   }
   validation: Validation
@@ -73,7 +76,7 @@ export type FindingPayload = {
  * it cites (through a claim's fact, a coverage claim or directly), the run's sources and versions, and the earlier
  * findings of the run it revised, following each accepted revision back.
  */
-export function findingPayload(f: FindingRow, run: RunRow, reviewId: string, executions: ExecutionRow[], checks: CheckRow[], findings: FindingRow[]): FindingPayload {
+export function findingPayload(f: FindingRow, run: RunRow, reviewId: string, executions: ExecutionRow[], checks: CheckRow[], findings: FindingRow[], locations: Record<string, string> = {}): FindingPayload {
   const c = f.content
   const checkIds = new Set([
     ...(c.check_ids ?? []),
@@ -107,6 +110,7 @@ export function findingPayload(f: FindingRow, run: RunRow, reviewId: string, exe
       assumptions: c.assumptions ?? [],
       uncertainties: c.uncertainties ?? [],
       citedRows: c.cited_rows ?? [],
+      citedRowLocations: Object.fromEntries((c.cited_rows ?? []).flatMap((id) => (locations[id] ? [[id, locations[id]]] : []))),
       revisionOf: c.revision?.accepted ? c.revision.of : null,
     },
     validation: f.validation,
@@ -211,9 +215,12 @@ export function packageHtml(p: FindingPayload): string {
     x.ok ? 'Every member covered' : `<span class="bad">${esc(x.reason ?? `Not covered: ${x.missing.join('; ')}`)}</span>`,
   ])
   const unsupported = [...(v.unclaimed_figures ?? []).map((x) => `${esc(x)} appears in the text without a verified claim`), ...(v.unsupported_scope ?? []).map((x) => `“${esc(x)}” has no verified coverage`)]
+  // Each cited row with its location in the source file, where recorded.
+  // A payload frozen before locations were recorded has none; a newer one without a row's location says so.
+  const rowRefs = f.citedRows.map((id) => (f.citedRowLocations?.[id] ? `${id} (${f.citedRowLocations[id]})` : f.citedRowLocations ? `${id} (location not retained)` : id)).join('; ')
   const index = [
     ['Checks', esc(p.checks.map((x) => `${x.id} ${x.check}`).join('; ') || 'none')],
-    ['Source rows', esc(f.citedRows.join(', ') || 'none')],
+    ['Source rows', esc(rowRefs || 'none')],
     ['Python executions', esc(p.executions.map((x) => x.id).join(', ') || 'none')],
     ['Earlier versions', esc(p.earlier.map((x) => x.id).join(', ') || 'none')],
   ]
@@ -246,7 +253,7 @@ ${table(['Kind', 'References'], index)}
 
 <h2>Sources</h2>
 ${table(['Source', 'File', 'SHA-256', 'Retained as'], p.sources.map((s) => [esc(s.id), esc(s.file), `<code>${esc(s.sha256)}</code>`, `<code>${esc(s.key)}</code>`]))}
-<p class="meta">Source rows the finding cites: ${esc(f.citedRows.join(', ') || 'none')}.</p>
+<p class="meta">Source rows the finding cites, with where each is in its file: ${esc(rowRefs || 'none')}.</p>
 
 <h2>Checks</h2>
 ${
