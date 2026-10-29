@@ -11,6 +11,37 @@ create table if not exists review (
   created_at timestamptz not null default now()
 );
 
+-- When Cairn was last read for the review, and why the last read failed, if it did (§6.10, §12.5).
+alter table review add column if not exists status_checked_at timestamptz;
+alter table review add column if not exists status_error text;
+
+-- Each upload of a source file, kept as an immutable version in the file store under sources/<sha256>/<file>. A
+-- review's current sources are the latest upload of each file name (§6.2, §10.3).
+create table if not exists review_source (
+  review_id text not null references review,
+  file text not null,
+  sha256 text not null,
+  uploaded_at timestamptz not null default now(),
+  primary key (review_id, file, sha256)
+);
+
+-- Operator-started work that outlives a request: an investigation, submitting findings, generating or submitting a
+-- pack, reading Cairn. At most one of each kind runs per review; the partial unique index refuses a second, so a
+-- repeated click or a second worker can't duplicate it. A running operation whose heartbeat stops (the process
+-- died) is marked interrupted (§6.10).
+create table if not exists operation (
+  id uuid primary key default gen_random_uuid(),
+  review_id text not null references review,
+  kind text not null check (kind in ('investigate', 'open_record', 'submit_findings', 'refresh_status', 'generate_pack', 'submit_pack')),
+  state text not null default 'running' check (state in ('running', 'succeeded', 'failed', 'interrupted')),
+  started_at timestamptz not null default now(),
+  heartbeat_at timestamptz not null default now(),
+  finished_at timestamptz,
+  result jsonb,
+  error text
+);
+create unique index if not exists operation_one_running on operation (review_id, kind) where state = 'running';
+
 create table if not exists analysis_run (
   id text primary key,
   review_id text not null references review,

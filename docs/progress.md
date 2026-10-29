@@ -331,10 +331,51 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
   - The person checking Cairn found the assertions read cleanly as plain text, in the Tray and once filed, and the PDFs preview inline.
   - Pass 1 is complete, apart from the deployment image.
 
+**Operator journey: API, UI and durable operations** (spec v0.13, pass 2, §6.10, §14)
+
+- Durable operations (`server/src/operations.ts`):
+  - Each action that takes time runs as a row in the new `operation` table: investigate, open the record, submit findings, refresh status, generate the pack, submit the pack.
+  - A partial unique index allows one running operation per review and kind. A repeated click, or a second worker, gets the running operation back (409) and never a duplicate.
+  - A running operation updates its heartbeat every 20 seconds. At startup and on each poll, an operation with no heartbeat for 90 seconds is marked interrupted.
+  - A run left `running` with no live investigation and no trace activity for 10 minutes is marked failed, with a summary telling the operator to start a new run. Its reasoning is not resumed.
+- Uploads (`server/src/review-sources.ts`):
+  - Each upload is stored as an immutable version under `sources/<sha>/<file>`, and the review reads the latest version of each file.
+  - CSV and Markdown only until pass 3. File names are checked, files are limited to 10 MB each, and empty files are refused.
+- Cairn status:
+  - A poller reads Cairn once a minute, only for reviews with something unsettled there: an unfiled candidate, or a submitted pack not yet filed.
+  - The UI also refreshes when the operator returns to the window. A read within 15 seconds of the last good one is skipped, to stay within Cairn's rate limit.
+  - A failed read records its error alongside the time of the last good read, and changes no candidate.
+- HTTP API (`server/src/server.ts`, run with `npm start`):
+  - `node:http`, with no framework.
+  - One operator password, and a signed HttpOnly SameSite=Strict session cookie, which a cross-site request never carries.
+  - POSTs must be JSON or an upload (415 otherwise).
+  - The app's pages carry a CSP. The pack's HTML preview is sandboxed, with no scripts.
+  - Each request is logged as one JSON line, without its body.
+- UI (`web/`): React 19 and Vite 8, built to `web/dist` and served by the server. A Reviews list, then four tabs per review:
+  - Sources: upload, each source's validation issues, and its first rows.
+  - Investigation: Start investigation with a choice of effort, the runs, and a readable trace (summaries first; code and results on demand).
+  - Findings, for each finding:
+    - its state and both items;
+    - the assertion as sent, or a preview;
+    - the package PDF;
+    - what IGI checked, and what is unresolved;
+    - each submission with what Cairn has done with it;
+    - abandon, withdraw and new version, plus the list of things to do in Cairn.
+  - Pack: the blockers, Generate committee PDF, Submit pack, and the versions, with stale and superseded labelled.
+- Issues found and resolved in the browser walk-through:
+  - the submissions table did not say what Cairn had done with each candidate; it now shows the evidence reference and its status;
+  - findings showed the full run id; they now show the six-character run tag used in Cairn;
+  - run summaries lost their line breaks;
+  - a random session secret signed the operator out at every restart; `SESSION_SECRET` keeps sessions across restarts.
+- Verification:
+  - `npm test`: 36 pass. New: operations and recovery, upload versions, status failures, and an end-to-end API test from sign-in to a filed pack PDF against the Cairn test double.
+  - Type checks are clean for `server/` and `web/`.
+  - Every tab was walked through in a browser on the `dev-01-claims` review, including a finding's assertion as sent and the filed pack.
+- Not yet: deployment, parked for now. It needs a container image with Chrome and fonts, a Spaces file store, and the DigitalOcean resources.
+
 **Open**
 
 - Create the IGI database, database user and private Spaces bucket with scoped keys (spec §10.1), and put the connection details in `server/.env`. Needed at first deploy.
 - Gate B observations for later: Spark sweeps every catalogue check across every portfolio before forming hypotheses, so the checks, not Python, do most of the discovery. The holdout therefore needs at least one issue type no catalogue check covers; the overdue-action findings show Spark can find those. Classifications for the notification trigger vary between runs (observation, outstanding action).
 - The leak scan is a throwaway script; make it part of the evaluation harness so it runs before every evaluation.
 - Re-run the Monty smoke test on the DigitalOcean service at first deploy.
-- Source references name the review and finding id but not the run, so two runs of one review that both submit an F1 send the same reference to Cairn, and the pack labels findings by id alone. Include the run (or a short form of it) before a review has a second submitted run.

@@ -1,0 +1,66 @@
+// A review's uploaded sources (spec §6.2, §10.3). Every upload is kept as an immutable version in the file store
+// under sources/<sha256>/<file>; the review's current sources are the latest upload of each file name. The importer
+// reads a folder, so the current set is copied into a temporary folder named after it, rebuilt whenever it's missing.
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { sql } from './db.ts'
+import { getFile, putFile } from './files.ts'
+
+// File names IGI accepts, by extension, and the largest upload. Other formats arrive with their importers (§7.5).
+const FILE_NAME = /^[\w][\w .()-]{0,120}\.(csv|md)$/i
+export const MAX_SOURCE_BYTES = 10 * 1024 * 1024
+const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
+
+// One current source of a review: its file name, the SHA-256 of the version in use, and when it was uploaded.
+export type CurrentSource = { file: string; sha256: string; uploaded_at: Date }
+
+/**
+ * Stores an uploaded source file as a new version for the review. The name must be a plain file name of an accepted
+ * type, so it can't reach outside the review's folder; an empty or oversized file is refused. Uploading the same
+ * bytes again makes that version current again.
+ */
+export async function uploadSource(reviewId: string, file: string, bytes: Uint8Array): Promise<CurrentSource> {
+  if (!FILE_NAME.test(file)) throw new Error(`"${file}" is not an accepted source file: CSV or Markdown, with a plain file name`)
+  if (!bytes.length) throw new Error(`${file} is empty`)
+  if (bytes.length > MAX_SOURCE_BYTES) throw new Error(`${file} is over ${MAX_SOURCE_BYTES / 1024 / 1024} MB`)
+  const sha = sha256(bytes)
+  putFile(`sources/${sha}/${file}`, bytes)
+  const [row] = await sql<CurrentSource[]>`
+    insert into review_source (review_id, file, sha256) values (${reviewId}, ${file}, ${sha})
+    on conflict (review_id, file, sha256) do update set uploaded_at = now() returning file, sha256, uploaded_at`
+  return row
+}
+
+/** The review's current sources: the latest upload of each file name. */
+export const currentSources = (reviewId: string) =>
+  sql<CurrentSource[]>`select distinct on (file) file, sha256, uploaded_at from review_source where review_id = ${reviewId} order by file, uploaded_at desc`
+
+/**
+ * The folder the importer reads for the review. With uploaded sources it is a temporary folder holding exactly the
+ * current versions, named by their hashes and written to a sibling folder then renamed, so a reader never sees it
+ * half-written. A review made on the command line from a scenario folder has no uploads and uses that folder.
+ */
+export async function reviewDir(reviewId: string): Promise<string> {
+  const files = await currentSources(reviewId)
+  if (!files.length) {
+    const [r] = await sql<{ source_dir: string | null }[]>`select source_dir from review where id = ${reviewId}`
+    if (!r?.source_dir) throw new Error(`review ${reviewId} has no sources; upload them first`)
+    return r.source_dir
+  }
+  const dir = join(tmpdir(), 'igi-reviews', reviewId, sha256(files.map((f) => `${f.file} ${f.sha256}`).join('\n')).slice(0, 16))
+  if (existsSync(dir)) return dir
+  const partial = `${dir}.${process.pid}.partial`
+  rmSync(partial, { recursive: true, force: true })
+  mkdirSync(partial, { recursive: true })
+  for (const f of files) writeFileSync(join(partial, f.file), getFile(`sources/${f.sha256}/${f.file}`))
+  try {
+    renameSync(partial, dir)
+  } catch (e) {
+    // Another request assembled the same folder first: theirs is identical, so use it.
+    if (!existsSync(dir)) throw e
+    rmSync(partial, { recursive: true, force: true })
+  }
+  return dir
+}

@@ -11,6 +11,7 @@ import { getFile, putFile, retainSources } from './files.ts'
 import { findingState, itemState, refreshStatus, PACK_STEP, type ItemState, type Kind, type LedgerEntry } from './ledger.ts'
 import { basisWords, CHECKED_SCOPE, runTag } from './package.ts'
 import { renderPdf } from './render.ts'
+import { reviewDir } from './review-sources.ts'
 import { importReview } from './sources.ts'
 
 // One accepted item: its candidate id, the evidence Cairn reported for it, and the SHA-256 of what IGI sent.
@@ -232,14 +233,12 @@ export const listPacks = (reviewId: string) =>
   sql<(PackRow & { superseded: boolean })[]>`select *, version < max(version) over () as superseded from committee_pack where review_id = ${reviewId} order by version`
 
 /**
- * Generates the next final committee pack (§6.8), from a status read-back made now. Returns what blocks it
- * instead when a submitted finding is pending or incomplete, when a pack with no findings isn't allowed, when
- * the record still holds active evidence of a withdrawn or rejected version, or when the sources no longer match
- * the latest run. A Cairn read that fails throws: no pack from an old read-back.
+ * What blocks a final pack, from the latest stored read-back, with what generating one goes on to use (§6.8): a
+ * submitted finding pending or incomplete, a pack with no findings that isn't allowed, active evidence of a withdrawn
+ * or rejected version on the record, or sources that no longer match the latest run. Calls nothing outside IGI.
  */
-export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pack: PackRow } | { blockers: Blocker[] }> {
-  await checkPacks(cairn, reviewId)
-  const [review] = await sql<{ source_dir: string | null; cairn_record: RecordSteps | null }[]>`select source_dir, cairn_record from review where id = ${reviewId}`
+async function assessPack(reviewId: string) {
+  const [review] = await sql<{ cairn_record: RecordSteps | null }[]>`select cairn_record from review where id = ${reviewId}`
   if (!review) throw new Error(`no review ${reviewId}`)
   const [run] = await sql<Pick<RunRow, 'id' | 'status' | 'config'>[]>`select id, status, config from analysis_run where review_id = ${reviewId} order by started_at desc limit 1`
   if (!run) throw new Error(`review ${reviewId} has no analysis run`)
@@ -270,19 +269,33 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
 
   // Fourth, the sources must be exactly those the latest run analysed: each side is a set of "file (hash)" strings,
   // and anything in one set but not the other is listed.
-  if (!review.source_dir) throw new Error(`review ${reviewId} has no sources`)
-  const data = importReview(review.source_dir, reviewId)
+  const dir = await reviewDir(reviewId)
+  const data = importReview(dir, reviewId)
   const key = (s: { file: string; sha256: string }) => `${s.file} (SHA-256 ${s.sha256.slice(0, 12)})`
   const now = new Set(data.sources.map(key))
   const then = new Set(run.config.sources.map(key))
   const changed = [...now.symmetricDifference(then)]
   if (changed.length) blockers.push({ reason: `the sources differ from those of the latest analysis run ${run.id}: ${changed.join(', ')}; investigate again` })
+  return { blockers, review, run, recordReference, resolved, included, excluded, dir, data }
+}
+
+/** What blocks a final pack now, from the latest read-back: what the operator sees before generating one. */
+export const packBlockers = async (reviewId: string) => (await assessPack(reviewId)).blockers
+
+/**
+ * Generates the next final committee pack (§6.8), from a status read-back made now, or returns what blocks it. A
+ * Cairn read that fails throws: no pack from an old read-back.
+ */
+export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pack: PackRow } | { blockers: Blocker[] }> {
+  await checkPacks(cairn, reviewId)
+  const { blockers, review, run, recordReference, resolved, included, excluded, dir, data } = await assessPack(reviewId)
   if (blockers.length) return { blockers }
+  type Resolved = (typeof resolved)[number]
 
   // Nothing blocks, so build the snapshot. Each source file is kept in the file store, so the register's hashes
   // point at retained copies. The allocation covers the last two periods and every asset class in the look-through
   // data; the check results come from the runs of the included findings.
-  const keys = retainSources(review.source_dir, data.sources)
+  const keys = retainSources(dir, data.sources)
   const rows = (id: string) => data.sources.find((s) => s.id === id)?.rows ?? []
   const action = ({ action_id, action, owner, due_date, status, notes }: Record<string, string>): CommitteeAction => ({ action_id, action, owner, due_date, status, notes })
   const assetClasses = [...new Set(rows('lookthrough').map((r) => r.asset_class))].sort()
