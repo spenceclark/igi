@@ -288,7 +288,8 @@ const UNIVERSAL = /\b(?:all|every|none of the|no other)\b(?:\s+[\w-]+){0,3}?\s+(
 const TOPICS: [CoverageClaim['kind'], RegExp][] = [
   ['limits_met', /\b(?:limits?|rules?|breach\w*|complian\w*|compl(?:y|ies|ied)|meets?|met)\b/i],
   ['charges_unchanged', /\b(?:charges?|fees?|OCFs?)\b/i],
-  ['lookthrough_complete', /look-?through|\bcoverage\b/i],
+  // "coverage" alone reads as look-through coverage, but not when it qualifies fees or charges ("fee coverage").
+  ['lookthrough_complete', /look-?through|(?<!\b(?:fee|charge|OCF)s?\s)\bcoverage\b/i],
   ['weights_reconcile', /\breconcil\w*|\breported weights?\b|\bweights? (?:agree|match|sum)\w*/i],
 ]
 /**

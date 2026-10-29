@@ -177,6 +177,9 @@ test('validation: a claim about every fund held fails when the cited checks miss
   assert.ok(missing.length && missing.every((m) => m.startsWith(`${lone}:`)), missing.join('\n'))
   const whole = await propose(s, { review_area: 'funds_fees', portfolios, statement, coverage: coverage(portfolios.map((p) => fees[p].check_id)) })
   assert.equal(whole.validation.state, 'validated')
+  // "fee coverage" is about charges, not look-through: charges coverage alone supports the sentence.
+  const fee = await propose(s, { review_area: 'funds_fees', portfolios, statement: 'With complete fee coverage apart from these funds, no other fund held changed its charge.', coverage: coverage(portfolios.map((p) => fees[p].check_id)) })
+  assert.equal(fee.validation.state, 'validated', fee.validation.unmatched.join('; '))
   // The same sentence with no coverage claim is a statement about a population nobody proved.
   const bare = await propose(s, { review_area: 'funds_fees', portfolios, statement, check_ids: [fees[lone].check_id] })
   assert.deepEqual(finding(s, bare.finding_id).validation.unsupported_scope, ['All other funds'])

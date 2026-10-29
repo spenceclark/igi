@@ -430,3 +430,11 @@ The seven defects above are resolved, each with a regression test that mirrors t
   - Starting an investigation makes the current pack stale at once, since the new run governs the review (the definition the pack's blockers already used). If that run fails, the operator regenerates the pack.
   - A run that reaches the Python cap now ends `budget_exhausted`, which blocks a pack with no findings until a run completes.
 - Not re-run: a live Spark investigation. The new prompt wording and coverage rule have not yet been seen against the model.
+- Live run after the fixes, on a fresh review `dev-01-audit` of the dev-01 sources (no Cairn calls):
+  - `completed_with_uncertainties` in 20 turns, 40 tool calls, 2 Python runs and 18 checks, for $0.29. The run's config records the new instructions hash.
+  - Eight current findings, all validated: the two breaches; two outstanding actions (the overdue replacement and the triggered notification); three observations (a fee change, an action verified as met, and source data reconciling with complete look-through); and every other limit met, apart from the two breaches.
+  - The whole-population rule acted twice, and each time the model's revision passed:
+    - F1 said "full coverage" with no coverage claim. Its revision F2 added look-through coverage for its portfolio.
+    - F6 had charges coverage for every portfolio, but its sentence "with complete fee coverage apart from this fund, no other fund held changed its charge" was refused. The word "coverage" also demanded look-through coverage, which is a false negative. Its revision F7 dropped the word.
+  - F10 ("every other structured rule in force was met", with the two breaches as exceptions) validated on `limits_met` for all three portfolios. F9 (weights reconcile and look-through complete for every holding) needed, and had, both kinds.
+  - Fixed after the run: "coverage" right after fee, charge or OCF no longer asks for look-through coverage. The validation tests now include F6's sentence, which validates on charges coverage alone. `npm test`: 41 pass.
