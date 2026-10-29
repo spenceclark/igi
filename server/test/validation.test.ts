@@ -238,7 +238,7 @@ test('validation: look-through totals of 100% do not hide a holding with no look
   const r = await propose(s, { review_area: 'source_data', portfolios: [first.portfolio_id], statement: 'Look-through data has full coverage.', coverage: [claim] })
   const v = finding(s, r.finding_id).validation
   assert.equal(r.validation.state, 'unvalidated')
-  assert.match(v.coverage![0].missing[0], new RegExp(`${first.instrument_id} .* has no look-through data`))
+  assert.match(v.coverage![0].missing[0], new RegExp(`${first.instrument_id} .* has no usable look-through data`))
   // A Python result (a sum of the groups that exist) is not coverage evidence.
   const py = await propose(s, { review_area: 'source_data', portfolios: [first.portfolio_id], statement: 'Every holding has look-through data.', coverage: [{ ...claim, checks: ['X1'] }], check_ids: [c.check_id] })
   assert.match(finding(s, py.finding_id).validation.coverage![0].reason!, /Python executions/)

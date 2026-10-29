@@ -3,7 +3,7 @@
 // was normalised there. Issues show here before any investigation starts.
 import { useState } from 'react'
 import { api, type Provenance, type ReviewOverview } from './api.ts'
-import { Problem, when } from './ui.tsx'
+import { Action, Problem, when } from './ui.tsx'
 
 export function Sources({ id, overview, reload }: { id: string; overview: ReviewOverview; reload: () => Promise<void> }) {
   const [error, setError] = useState<string | null>(null)
@@ -15,7 +15,7 @@ export function Sources({ id, overview, reload }: { id: string; overview: Review
   return (
     <div>
       <h2>Upload sources</h2>
-      <p className="meta">XLSX workbooks, DOCX minutes and text-based PDFs in the documented layouts, or CSV files and the Markdown policy document. Each upload is kept as a version; the latest of each file name is used.</p>
+      <p className="meta">XLSX workbooks, DOCX minutes and text-based PDFs in the documented layouts, or CSV files and the Markdown policy document. Each upload is kept as a version; the latest of each file name is used, and Remove takes a file out of the review’s sources.</p>
       <input
         type="file"
         multiple
@@ -100,8 +100,8 @@ export function Sources({ id, overview, reload }: { id: string; overview: Review
         <>
           <h2>Uploads in use</h2>
           <table className="small">
-            <thead><tr><th>File</th><th>Uploaded</th><th>SHA-256</th></tr></thead>
-            <tbody>{overview.uploads.map((u) => <tr key={u.file}><td>{u.file}</td><td>{when(u.uploaded_at)}</td><td><code>{u.sha256}</code></td></tr>)}</tbody>
+            <thead><tr><th>File</th><th>Uploaded</th><th>SHA-256</th><th /></tr></thead>
+            <tbody>{overview.uploads.map((u) => <tr key={u.file}><td>{u.file}</td><td>{when(u.uploaded_at)}</td><td><code>{u.sha256}</code></td><td><Action label="Remove" run={async () => (await api.removeSource(id, u.file), await reload())} /></td></tr>)}</tbody>
           </table>
         </>
       )}

@@ -24,6 +24,8 @@ export type ReviewOverview = {
   review: { id: string; periodEnd: string; createdAt: string; record: CairnRecord | null; statusCheckedAt: string | null; statusError: string | null; cairnAppUrl: string | null }
   uploads: Upload[]
   sources: SourceSummary[]
+  // What stops an investigation starting: no positions at the period end, or two files of one kind.
+  blockers: string[]
   importError: string | null
   runs: RunSummary[]
   operations: Operation[]
@@ -94,7 +96,9 @@ export type PacksResponse = { blockers: Blocker[]; blockError: string | null; pa
 export type TraceEvent = { seq: number; at: string; type: string; data: Record<string, unknown> }
 export type Execution = { id: string; purpose: string; code: string; ok: boolean; result: unknown; stdout: string; error: string | null }
 export type Note = { id: string; kind: string; text: string }
-export type RunDetail = { run: RunSummary & { config: { model: string; reasoning_effort: string; igi_commit: string } }; events: TraceEvent[]; executions: Execution[]; notes: Note[]; findings: Finding[] }
+// How one rule version in force for a portfolio at a period was evaluated by the run's trusted checks.
+export type RuleStatus = { period: string; portfolio_id: string; rule_id: string; version: string; metric: string; status: 'passed' | 'breached' | 'not_evaluated' | 'unsupported'; check_id?: string; reason?: string }
+export type RunDetail = { run: RunSummary & { config: { model: string; reasoning_effort: string; igi_commit: string } }; events: TraceEvent[]; executions: Execution[]; notes: Note[]; findings: Finding[]; rule_coverage: RuleStatus[] | null; rule_coverage_error: string | null }
 
 export class SignedOut extends Error {}
 
@@ -130,6 +134,7 @@ export const api = {
     for (const f of files) form.append('files', f, f.name)
     return call<{ uploaded: Upload[] }>('POST', `/api/reviews/${id}/sources`, form)
   },
+  removeSource: (id: string, file: string) => call<{ removed: boolean }>('DELETE', `/api/reviews/${id}/sources/${encodeURIComponent(file)}`),
   rows: (id: string, source: string) => call<{ rows: Record<string, string>[]; matching: number; provenance: Record<string, Provenance> }>('GET', `/api/reviews/${id}/sources/${source}/rows?limit=50`),
   investigate: (id: string, effort: string) => start(`/api/reviews/${id}/investigate`, { effort }),
   run: (runId: string) => call<RunDetail>('GET', `/api/runs/${runId}`),

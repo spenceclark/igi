@@ -39,6 +39,7 @@ export function Investigation({ id, overview, reload }: { id: string; overview: 
     <div>
       <h2>Start investigation</h2>
       <p className="meta">Spark investigates the current sources against the policies, with read-only tools, Python in a sandbox and trusted checks. It has not been told what is wrong. A run takes a few minutes and costs about $0.20.</p>
+      {overview.blockers.length > 0 && <div className="problem"><p>An investigation can’t start until the sources are fixed:</p><ul>{overview.blockers.map((b) => <li key={b}>{b}</li>)}</ul></div>}
       {issues > 0 && <p className="problem">The sources have {issues} validation issue{issues === 1 ? '' : 's'}; Spark sees them, and conclusions that depend on them stay open.</p>}
       <div className="row">
         <select value={effort} onChange={(e) => setEffort(e.target.value)}>
@@ -46,7 +47,7 @@ export function Investigation({ id, overview, reload }: { id: string; overview: 
           <option value="medium">Reasoning effort: medium</option>
           <option value="high">Reasoning effort: high</option>
         </select>
-        <Action label={running ? 'Investigation running' : 'Start investigation'} primary disabled={running || !overview.sources.length} run={async () => (await api.investigate(id, effort), setSelected(null), setTimeout(() => void reload(), 1000))} />
+        <Action label={running ? 'Investigation running' : 'Start investigation'} primary disabled={running || !overview.sources.length || overview.blockers.length > 0} run={async () => (await api.investigate(id, effort), setSelected(null), setTimeout(() => void reload(), 1000))} />
       </div>
 
       <h2>Runs</h2>
@@ -113,6 +114,21 @@ export function Investigation({ id, overview, reload }: { id: string; overview: 
               <h3>Notes</h3>
               <ul>{run.data.notes.map((n) => <li key={n.id}><strong>{n.id}</strong> <Badge state={n.kind} /> {n.text}</li>)}</ul>
             </>
+          )}
+          <h3>Policy rules</h3>
+          <p className="meta">Every structured rule version in force, for each portfolio and period, and whether a trusted check of this run evaluated it. Not evaluated and unsupported are never counted as met.</p>
+          <Problem>{run.data.rule_coverage_error}</Problem>
+          {run.data.rule_coverage && (
+            <table className="small">
+              <thead><tr><th>Period</th><th>Portfolio</th><th>Rule</th><th>Metric</th><th>Status</th><th>Check or reason</th></tr></thead>
+              <tbody>
+                {run.data.rule_coverage.map((r) => (
+                  <tr key={`${r.period} ${r.portfolio_id} ${r.rule_id} ${r.version}`}>
+                    <td>{r.period}</td><td>{r.portfolio_id}</td><td>{r.rule_id} v{r.version}</td><td>{r.metric}</td><td><Badge state={r.status} /></td><td>{[r.check_id, r.reason].filter(Boolean).join(': ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
           <p className="meta">The run’s findings are on the <a href={`#/r/${id}/findings`}>Findings</a> tab.</p>
         </>

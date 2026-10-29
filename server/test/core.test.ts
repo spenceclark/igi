@@ -5,8 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dec, div, fmt, mul, sum } from '../src/decimal.ts'
 import { parseCsv, toCsv } from '../src/csv.ts'
-import { importReview, periodProblem } from '../src/sources.ts'
-import { runCheck } from '../src/checks.ts'
+import { blockers, importReview } from '../src/sources.ts'
 import { callTool, type RunState } from '../src/tools.ts'
 import { parseFigure, proseFigures, sameFigure, type Unit } from '../src/evidence.ts'
 import { route, useVessel } from '../src/model.ts'
@@ -25,11 +24,11 @@ test('import: the sources are read for the review’s own period end, never the 
   // A later period than the data holds: nothing to investigate, and said so.
   const later = importReview(dir, 'r', '2026-12-31')
   assert.equal(later.periodEnd, '2026-12-31')
-  assert.match(periodProblem(later)!, /no positions at the review's period end 2026-12-31/)
+  assert.match(blockers(later).join(' '), /no positions at the review's period end 2026-12-31/)
   assert.match(later.sources.flatMap((s) => s.issues).join('\n'), /no positions at the review's period end/)
   // An earlier period: that period is analysed, and positions after it are reported.
   const earlier = importReview(dir, 'r', latest.periods.at(-2))
-  assert.equal(periodProblem(earlier), undefined)
+  assert.deepEqual(blockers(earlier), [])
   assert.deepEqual(earlier.periods, latest.periods.slice(0, -1))
   assert.match(earlier.sources.flatMap((s) => s.issues).join('\n'), new RegExp(`is after the review's period end ${latest.periods.at(-2)}`))
 })
@@ -48,18 +47,6 @@ test('import: tampered data is reported, never repaired', () => {
   assert.match(issues, /possibly a percentage/)
   assert.match(issues, /duplicate/)
   assert.match(issues, /reported weights sum/)
-})
-
-test('import and checks: an asset class labelled differently from its rule is reported, never measured as zero', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'igi-'))
-  cpSync(SCENARIO, dir, { recursive: true })
-  const file = join(dir, 'lookthrough.csv')
-  writeFileSync(file, readFileSync(file, 'utf8').replaceAll(',equity,', ',Equity,'))
-  const review = importReview(dir, 'relabelled')
-  assert.match(review.sources.flatMap((s) => s.issues).join('\n'), /equity_exposure names asset class equity, which no look-through row at \S+ has \(classes: .*Equity/)
-  const portfolio = review.sources.find((s) => s.id === 'portfolios')!.rows[0].portfolio_id
-  assert.throws(() => runCheck(review, { check: 'lookthrough_exposure', portfolio_id: portfolio, asset_class: 'equity' }), /no look-through row at \S+ has asset class "equity"; the classes there are .*Equity/)
-  assert.throws(() => runCheck(review, { check: 'lookthrough_exposure', portfolio_id: portfolio, asset_class: 'equities' }), /asset class "equities"/)
 })
 
 test('findings: a stated figure matches an exact value in its unit, at the precision stated', () => {

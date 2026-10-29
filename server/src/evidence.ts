@@ -6,7 +6,7 @@
 // population. What IGI checks is the figures and the populations, never the finding's reasoning or conclusion.
 import { abs, dec, div, fmt, isDec, type Dec } from './decimal.ts'
 import type { CheckArgs } from './checks.ts'
-import type { Review, Row } from './sources.ts'
+import { assetClass, inForce, ruleProblem, type Review, type Row } from './sources.ts'
 
 // How a figure is expressed: a fraction of 1 shown as a percentage, a difference of two fractions shown in
 // percentage points, an amount in pounds, or a count.
@@ -63,9 +63,11 @@ const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 const recs = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.map(rec) : [])
 const text = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
 
+// An asset class as the taxonomy spells it, whatever case the agent or a stored check used.
+const canonClass = (label?: string) => (label === undefined ? undefined : (assetClass(label) ?? label))
 // The metric each check compares with the rules, which decides the unit of a rule's limit.
 const metricOf = (a: CheckArgs) =>
-  a.check === 'lookthrough_exposure' ? `${a.asset_class}_exposure` : a.check === 'holding_concentration' ? 'single_holding_weight' : a.check === 'relative_performance' ? 'relative_return_deviation' : ''
+  a.check === 'lookthrough_exposure' ? `${canonClass(a.asset_class)}_exposure` : a.check === 'holding_concentration' ? 'single_holding_weight' : a.check === 'relative_performance' ? 'relative_return_deviation' : ''
 /** A rule's limit is a fraction, except for a deviation between two returns, which is a difference in pp. */
 export const limitUnit = (metric: string): Unit => (metric === 'relative_return_deviation' ? 'points' : 'fraction')
 
@@ -93,7 +95,7 @@ export function factsOf(c: CheckLike): Fact[] {
       }
       break
     case 'lookthrough_exposure': {
-      const asset_class = c.args.asset_class
+      const asset_class = canonClass(c.args.asset_class)
       add('exposure', 'exposure', 'fraction', r.exposure, { asset_class })
       add('holdings_without_lookthrough', 'holdings_without_lookthrough', 'count', String(Array.isArray(r.holdings_without_lookthrough) ? r.holdings_without_lookthrough.length : ''))
       for (const h of recs(r.contributions)) {
@@ -281,8 +283,11 @@ export const isCurrent = (f: { superseded_by?: string | null; revision?: Revisio
 type Context = { review: Review; checks: CheckLike[] }
 type FindingText = { portfolios: string[]; period_end?: string; statement: string; explanation: string; claims?: Claim[]; coverage?: CoverageClaim[] }
 
-// Wording that makes a statement about a whole population: all portfolios, every holding, no other fund, full coverage.
-const UNIVERSAL = /\b(?:all|every|none of the|no other)\b(?:\s+[\w-]+){0,3}?\s+(?:portfolios?|holdings?|funds?|fees?|charges?|limits?|rules?|positions?)\b|\b(?:full|complete)\s+(?:look-?through\s+)?coverage\b/gi
+// Wording that makes a statement about a whole population: all portfolios, every holding, no other fund, full coverage;
+// and assurance of compliance, which is a statement about every rule: fully compliant or in full compliance (unless
+// negated), no breaches, no exceptions.
+const UNIVERSAL =
+  /\b(?:all|every|none of the|no other)\b(?:\s+[\w-]+){0,3}?\s+(?:portfolios?|holdings?|funds?|fees?|charges?|limits?|rules?|positions?)\b|\b(?:full|complete)\s+(?:look-?through\s+)?coverage\b|(?<!(?:\bnot|n['’]t|\bnever|\bno\s+longer|\bnot\s+yet)\s+)\b(?:fully|wholly|entirely)\s+compliant\b|(?<!(?:\bnot|n['’]t|\bnever|\bno\s+longer|\bnot\s+yet)\s+)\bin\s+full\s+compliance\b|\bno\s+(?:[\w-]+\s+){0,2}?(?:breaches|exceptions|exceedances)\b/gi
 // What a sentence states about its population, by its wording, and the coverage kind that proves it. A sentence
 // matching none of these can't be tied to any coverage, so its whole-population wording stays unsupported.
 const TOPICS: [CoverageClaim['kind'], RegExp][] = [
@@ -393,7 +398,7 @@ function checkClaim(c: Claim, ctx: Context, facts: Map<string, Fact>, exactOf: M
     if (f.portfolio && (c.portfolio ? c.portfolio !== f.portfolio : !portfolios.includes(f.portfolio))) return fail(basis, `${f.id} is for ${f.portfolio}, not ${c.portfolio ?? portfolios.join(', ')}`)
     if (f.period && f.period !== claimPeriod) return fail(basis, `${f.id} is at ${f.period}, not ${claimPeriod}; give the claim's period if it is another date`)
     if (f.instrument && c.instrument !== f.instrument) return fail(basis, `${f.id} is for instrument ${f.instrument}; name it in the claim's instrument`)
-    if (f.asset_class && c.asset_class !== f.asset_class) return fail(basis, `${f.id} is for ${f.asset_class}; name it in the claim's asset_class`)
+    if (f.asset_class && canonClass(c.asset_class) !== f.asset_class) return fail(basis, `${f.id} is for ${f.asset_class}; name it in the claim's asset_class`)
     ;[exact, unit, evidence] = [dec(f.exact), f.unit, f.id]
     scope = [f.portfolio, f.instrument, f.asset_class, f.rule && `${f.rule.id} v${f.rule.version}`, f.from_period ? `${f.from_period} to ${f.period}` : f.period].filter(Boolean).join(', ')
   } else if (s.rule !== undefined) {
@@ -402,8 +407,10 @@ function checkClaim(c: Claim, ctx: Context, facts: Map<string, Fact>, exactOf: M
     const rule = rows(ctx.review, 'policy_rules').find((r) => r.rule_id === s.rule && r.version === s.version)
     if (!rule) return fail(basis, `no rule ${s.rule} version ${s.version}`)
     if (c.measure !== 'policy_limit') return fail(basis, `a rule gives a policy_limit, not ${c.measure}`)
-    if (rule.effective_from > claimPeriod || (rule.effective_to && rule.effective_to < claimPeriod)) {
-      const current = rows(ctx.review, 'policy_rules').find((r) => r.rule_id === s.rule && r.effective_from <= claimPeriod && (!r.effective_to || r.effective_to >= claimPeriod))
+    const problem = ruleProblem(rule)
+    if (problem) return fail(basis, `${s.rule} version ${s.version} can't be used: ${problem}`)
+    if (!inForce(rule, claimPeriod)) {
+      const current = rows(ctx.review, 'policy_rules').find((r) => r.rule_id === s.rule && inForce(r, claimPeriod))
       return fail(basis, `${s.rule} version ${s.version} is not in force at ${claimPeriod}${current ? `; version ${current.version} is` : ''}`)
     }
     const applies = rule.portfolio_id === 'ALL' || (c.portfolio ? c.portfolio === rule.portfolio_id : portfolios.includes(rule.portfolio_id))
@@ -485,14 +492,20 @@ function checkCoverage(c: CoverageClaim, ctx: Context, period: string): Coverage
     if (c.kind === 'weights_reconcile') {
       const x = mine.find((y) => y.args.check === 'weight_reconciliation')
       const gap = x && text(x.result.max_abs_difference)
-      if (!x || !gap) missing.push(`${p}: no weight_reconciliation check at ${at}`)
+      if (!x) missing.push(`${p}: no weight_reconciliation check at ${at}`)
+      else if (!gap) missing.push(`${p}: ${x.id} could not reconcile the weights: ${recs(x.result.unresolved).map((u) => text(u.reason)).join('; ') || 'a figure is missing'}`)
       else if (dec(gap) !== 0n) missing.push(`${p}: reported and computed weights differ by up to ${show(gap, 'points')}`)
     }
     if (c.kind === 'lookthrough_complete') {
       const xs = mine.filter((y) => y.args.check === 'lookthrough_exposure')
       if (!xs.length) missing.push(`${p}: no lookthrough_exposure check at ${at}`)
-      // A holding is covered when some cited check found look-through data for it.
-      else for (const h of held(p)) if (xs.every((x) => (x.result.holdings_without_lookthrough as unknown[] | undefined)?.includes(h.instrument_id))) missing.push(`${p}: ${h.instrument_id} (${h.instrument_name}) has no look-through data at ${at}`)
+      // A holding is covered when some cited check found usable look-through data for it: neither missing nor
+      // unresolved (a label outside the taxonomy, an invalid value, exposures not summing to 1).
+      else
+        for (const h of held(p)) {
+          const covered = (x: CheckLike) => !(x.result.holdings_without_lookthrough as unknown[] | undefined)?.includes(h.instrument_id) && !recs(x.result.unresolved).some((u) => u.instrument_id === h.instrument_id)
+          if (!xs.some(covered)) missing.push(`${p}: ${h.instrument_id} (${h.instrument_name}) has no usable look-through data at ${at}`)
+        }
     }
     if (c.kind === 'charges_unchanged') {
       for (const h of held(p)) {
@@ -502,11 +515,16 @@ function checkCoverage(c: CoverageClaim, ctx: Context, period: string): Coverage
         else if (typeof line.change !== 'string' || dec(line.change) !== 0n) missing.push(`${p}: ${h.instrument_id} (${h.instrument_name}) charge ${typeof line.change === 'string' ? `changed by ${show(line.change, 'points')}` : 'missing at a period'}`)
       }
     }
+    // Every rule version in force must be compared by a cited check and met. A named exception sets aside a rule a
+    // cited check evaluated (a breach the finding reports); a rule no check could evaluate, unsupported or with
+    // unresolved inputs, is unknown, and can't be set aside to make the rest read as complete.
     if (c.kind === 'limits_met') {
-      const inForce = rows(ctx.review, 'policy_rules').filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && r.effective_from <= at && (!r.effective_to || r.effective_to >= at) && !c.except?.includes(r.rule_id))
-      for (const r of inForce) {
+      const applicable = rows(ctx.review, 'policy_rules').filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && inForce(r, at))
+      for (const r of applicable) {
         const x = mine.flatMap((y) => recs(y.result.comparisons)).find((k) => k.rule_id === r.rule_id && k.version === r.version)
-        if (!x) missing.push(`${p}: ${r.rule_id} v${r.version} is compared in no cited check`)
+        if (c.except?.includes(r.rule_id)) {
+          if (!x) missing.push(`${p}: ${r.rule_id} v${r.version} is named as an exception but no cited check evaluated it; only an evaluated rule can be set aside`)
+        } else if (!x) missing.push(`${p}: ${r.rule_id} v${r.version} is compared in no cited check`)
         else if (x.status !== 'within') missing.push(`${p}: ${r.rule_id} v${r.version} is breached`)
       }
     }

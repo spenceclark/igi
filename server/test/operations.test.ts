@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cairnClient } from '../src/cairn.ts'
-import { importReview } from '../src/sources.ts'
+import { blockers, importReview } from '../src/sources.ts'
 import { CONFIG, finding, resetDatabase, useTestDatabase } from './helpers.ts'
 
 const skip = await useTestDatabase('operations')
@@ -90,6 +90,33 @@ test('sources: each upload is an immutable version; the review reads the current
   for (const f of readdirSync(DEV01)) await sources.uploadSource('r2', f, new Uint8Array(readFileSync(join(DEV01, f))))
   await assert.rejects(reviews.investigateReview('r2'), /no positions at the review's period end 2026-12-31/)
   assert.equal((await db.sql`select 1 from operation where review_id = 'r2'`).length, 0)
+})
+
+test('sources: two files of one kind block an investigation until one is removed; a removed file can come back', { skip }, async () => {
+  await resetDatabase(db)
+  await reviews.createReview('r1', '2026-09-30')
+  for (const f of readdirSync(DEV01)) await sources.uploadSource('r1', f, new Uint8Array(readFileSync(join(DEV01, f))))
+  const complete = await sources.sourceSet('r1')
+  // The positions arrive as one file per period, as separate valuation reports would.
+  const [header, ...lines] = readFileSync(join(DEV01, 'positions.csv'), 'utf8').trimEnd().split('\n')
+  const periods = [...new Set(lines.map((l) => l.split(',')[1]))].sort()
+  const part = (period: string) => new TextEncoder().encode([header, ...lines.filter((l) => l.split(',')[1] === period)].join('\n') + '\n')
+  await sources.removeSource('r1', 'positions.csv')
+  await sources.uploadSource('r1', 'positions-earlier.csv', part(periods[0]))
+  await sources.uploadSource('r1', 'positions-later.csv', part(periods.at(-1)!))
+  await assert.rejects(reviews.investigateReview('r1'), /positions-later\.csv also provides positions, which positions-earlier\.csv already does/)
+  assert.equal((await db.sql`select 1 from operation where review_id = 'r1'`).length, 0, 'nothing started')
+
+  // Removing the split files and uploading the original again restores the set: same files, same hashes.
+  await sources.removeSource('r1', 'positions-earlier.csv')
+  await sources.removeSource('r1', 'positions-later.csv')
+  await assert.rejects(sources.removeSource('r1', 'positions-later.csv'), /is not a current source/)
+  assert.ok(!(await sources.currentSources('r1')).some((s) => s.file.startsWith('positions')))
+  await sources.uploadSource('r1', 'positions.csv', new Uint8Array(readFileSync(join(DEV01, 'positions.csv'))))
+  assert.deepEqual(await sources.sourceSet('r1'), complete)
+  assert.deepEqual(blockers(importReview(await sources.reviewDir('r1'), 'r1', '2026-09-30')), [])
+  // Every version stays on record; removal is what the current set leaves out, which packs and runs compare against.
+  assert.equal((await db.sql`select 1 from review_source where file like 'positions%'`).length, 3)
 })
 
 test('status: a failed read of Cairn is recorded as uncertainty and changes no candidate', { skip }, async () => {

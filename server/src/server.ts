@@ -8,6 +8,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, join, normalize, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import type { Cairn, RecordSteps } from './cairn.ts'
+import { ruleCoverage } from './checks.ts'
 import { excludedItems, listPacks, markStalePacks, packBlockers, reconcileAdvice, resolveFindings, type PackRow } from './committee-pack.ts'
 import { loadRun, sql, type FindingRow, type RunRow } from './db.ts'
 import { getFile } from './files.ts'
@@ -15,9 +16,9 @@ import { abandonEntry, ledgerEntries, newVersion, rowLocations, withdrawFinding 
 import { AlreadyRunning, listOperations, type Operation } from './operations.ts'
 import { composeAssertion, findingPayload, packageHtml, runTag } from './package.ts'
 import { renderPdf } from './render.ts'
-import { currentSources, reviewDir, reviewPeriod, uploadSource } from './review-sources.ts'
+import { assemble, currentSources, removeSource, reviewDir, reviewPeriod, uploadSource } from './review-sources.ts'
 import { createReview, generateReviewPack, investigateReview, openReviewRecord, readCairn, refreshReview, submitReviewFindings, submitReviewPack } from './reviews.ts'
-import { importReview, readData, sourceSummary, type ReadArgs } from './sources.ts'
+import { blockers, importReview, readData, sourceSummary, type ReadArgs } from './sources.ts'
 
 // What the server needs: the Cairn client, the operator's password, a secret for signing sessions, and where the
 // built web UI is. Cookies are marked Secure unless running locally over plain http.
@@ -108,12 +109,14 @@ export function igiServer(o: ServerOptions) {
       const r = await reviewRow(c.params[0])
       const files = await currentSources(r.id)
       // The import check of the current sources, so issues show before any investigation, with each source's format
-      // and the layout version that read it.
+      // and the layout version that read it, and what would stop an investigation starting (§6.2).
       let sources: (ReturnType<typeof sourceSummary>[number] & { format: string; extractor?: string })[] = []
+      let investigationBlockers: string[] = []
       let importError: string | null = null
       try {
         const review = importReview(await reviewDir(r.id), r.id, await reviewPeriod(r.id))
         sources = sourceSummary(review).map((x, i) => ({ ...x, format: review.sources[i].format, extractor: review.sources[i].extractor }))
+        investigationBlockers = blockers(review)
       } catch (e) {
         importError = (e as Error).message
       }
@@ -123,6 +126,7 @@ export function igiServer(o: ServerOptions) {
         review: { id: r.id, periodEnd: r.period_end, createdAt: r.created_at, record: r.cairn_record?.record ?? null, statusCheckedAt: r.status_checked_at, statusError: r.status_error, cairnAppUrl: process.env.CAIRN_APP_URL ?? null },
         uploads: files,
         sources,
+        blockers: investigationBlockers,
         importError,
         runs,
         operations: await listOperations(r.id),
@@ -141,6 +145,11 @@ export function igiServer(o: ServerOptions) {
       for (const f of files) stored.push(await uploadSource(c.params[0], f.name, new Uint8Array(await f.arrayBuffer())))
       return { uploaded: stored }
     }],
+    ['DELETE', /^\/api\/reviews\/([\w-]+)\/sources\/([^/]+)$/, async (c) => {
+      await reviewRow(c.params[0])
+      await removeSource(c.params[0], decodeURIComponent(c.params[1]))
+      return { removed: true }
+    }],
     ['GET', /^\/api\/reviews\/([\w-]+)\/sources\/([\w-]+)\/rows$/, async (c) => {
       // The rows as the agent reads them, each with where it is in its file and what was normalised or computed there.
       const review = importReview(await reviewDir(c.params[0]), c.params[0], await reviewPeriod(c.params[0]))
@@ -157,7 +166,17 @@ export function igiServer(o: ServerOptions) {
     ['GET', /^\/api\/runs\/([\w-]+)$/, async (c) => {
       const run = await loadRun(c.params[0])
       if (!run) throw new HttpError(404, `no run ${c.params[0]}`)
-      return run
+      // How each rule version in force was evaluated by the run's checks (§6.4, §8.2), on the sources the run read,
+      // for the review's period end; null with the reason when those sources can't be read back.
+      let ruleStatus: ReturnType<typeof ruleCoverage> | null = null
+      let ruleStatusError: string | null = null
+      try {
+        const review = importReview(assemble(run.run.review_id, run.run.config.sources), run.run.review_id, await reviewPeriod(run.run.review_id))
+        ruleStatus = ruleCoverage(review, run.checks)
+      } catch (e) {
+        ruleStatusError = (e as Error).message
+      }
+      return { ...run, rule_coverage: ruleStatus, rule_coverage_error: ruleStatusError }
     }],
 
     // Findings: each current finding with its state, its two items, the ledger and the reconciliation still needed.

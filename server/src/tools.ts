@@ -3,7 +3,7 @@
 import { CHECK_CATALOGUE, runCheck, type CheckArgs } from './checks.ts'
 import { COVERAGE, MEASURES, factIndex, factsOf, isCurrent, validateFinding, type Claim, type CoverageClaim, type Revision, type Validation } from './evidence.ts'
 import { LIMITS, hostFunction, runPython } from './sandbox.ts'
-import { READ_LIMIT, getPolicy, readData, rowExists, sourceSummary, type ReadArgs, type Review } from './sources.ts'
+import { ASSET_CLASSES, READ_LIMIT, getPolicy, readData, rowExists, sourceSummary, type ReadArgs, type Review } from './sources.ts'
 
 // Finding classifications and what each means; propose_finding's description lists them for the agent.
 export const CLASSIFICATIONS = {
@@ -98,7 +98,7 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'get_policy',
-    description: 'Returns the policy document (all sections, or one by number or heading text) and the structured policy rules, optionally only those applying to a portfolio (rules for ALL included) on a date. The structured rules are authoritative for numerical limits; do not take limits from the document text.',
+    description: 'Returns the policy document (all sections, or one by number or heading text) and the structured policy rules, optionally only those applying to a portfolio (rules for ALL included) on a date. The structured rules are authoritative for numerical limits; do not take limits from the document text. Each rule\'s evaluation says which trusted check compares it, or that none can (unsupported, or not evaluable with the reason).',
     parameters: obj({ section: str('Section number or heading text'), portfolio_id: str('Portfolio id'), as_of: str('ISO date: only rule versions in force on that date') }),
   },
   {
@@ -117,9 +117,9 @@ export const TOOLS = [
   {
     type: 'function',
     name: 'run_check',
-    description: `Runs a named, tested deterministic calculation in decimal arithmetic and returns its result with an id (C...). Rules are the structured rule versions in force at the period end. The result's facts lists each figure as a fact id (C7:exposure) with its value in its unit, its measure and, where it has one, its asset class, instrument or rule; a finding's claims cite these ids. Catalogue (arguments: what it returns):\n${Object.entries(CHECK_CATALOGUE).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\nperiod_end defaults to the review period end; for fee_change, from_period defaults to the previous period end.`,
+    description: `Runs a named, tested deterministic calculation in decimal arithmetic and returns its result with an id (C...). Rules are the structured rule versions in force at the period end. The result's facts lists each figure as a fact id (C7:exposure) with its value in its unit, its measure and, where it has one, its asset class, instrument or rule; a finding's claims cite these ids. Catalogue (arguments: what it returns):\n${Object.entries(CHECK_CATALOGUE).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\nperiod_end defaults to the review period end; for fee_change, from_period defaults to the previous period end.\nA check never treats a missing, invalid, duplicated or unrecognised input as a value: the figures that depend on it are null, unresolved lists it with its source rows, and a rule that could not be compared is listed under not_compared with the reason, rather than shown as met.`,
     parameters: obj(
-      { check: { type: 'string', enum: Object.keys(CHECK_CATALOGUE) }, portfolio_id: str('Portfolio id'), period_end: str('ISO date'), asset_class: str('For lookthrough_exposure: an asset class exactly as the look-through data names it'), from_period: str('ISO date'), to_period: str('ISO date') },
+      { check: { type: 'string', enum: Object.keys(CHECK_CATALOGUE) }, portfolio_id: str('Portfolio id'), period_end: str('ISO date'), asset_class: { type: 'string', enum: [...ASSET_CLASSES], description: 'For lookthrough_exposure' }, from_period: str('ISO date'), to_period: str('ISO date') },
       ['check', 'portfolio_id'],
     ),
   },
@@ -143,7 +143,7 @@ export const TOOLS = [
       '- quote with row or section: the exact words of a committee_actions row or a policy document section that contain the figure, for a threshold or target written only in text (measure action_threshold or document_figure). A quoted figure is an extract a person reads in context, never a structured rule;',
       '- derived with of (two claim keys): difference (measure change), relative_change, or comparison with a relation (above, below, at_or_above, at_or_below, equal; no value).',
       `Scope: portfolio, period, instrument (an instrument id) and asset_class must match the evidence; portfolio defaults to the finding's portfolios and period to its period_end, so give them for a figure from another portfolio or date. Measures: ${Object.entries(MEASURES).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
-      `coverage proves a statement about a whole population (all portfolios, every holding, no other fund, full coverage), from run_check results only: ${Object.entries(COVERAGE).map(([k, v]) => `${k} (${v})`).join('; ')}. Give the portfolios it covers. A statement is supported only by coverage of the kind it states, over the population it names: wording about portfolios needs every portfolio in the review, other wording the finding's portfolios.`,
+      `coverage proves a statement about a whole population (all portfolios, every holding, no other fund, full coverage), or assurance of compliance (fully compliant, in full compliance, no breaches, no exceptions), from run_check results only: ${Object.entries(COVERAGE).map(([k, v]) => `${k} (${v})`).join('; ')}. Give the portfolios it covers. A statement is supported only by coverage of the kind it states, over the population it names: wording about portfolios needs every portfolio in the review, other wording the finding's portfolios.`,
       'IGI checks each claim against its evidence and each coverage claim against the population in the sources. The finding is validated only if all of them check out and no figure or population statement in the text is left unsupported; a potential_exception that is not validated is stored as an unvalidated observation. The reasoning and conclusion are not checked: they are yours, reviewed by a person.',
       'To revise a current finding, propose the new version with replaces set to its id. The revision becomes current if it is validated, or if the finding it replaces was not; otherwise it is kept as a rejected revision and the earlier finding stays current.',
     ].join('\n'),

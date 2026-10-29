@@ -5,9 +5,10 @@ import { SignedOut } from './api.ts'
 
 // Colours for states, by how a reader should take them: settled, waiting, needs attention, neutral.
 const TONE: Record<string, 'good' | 'wait' | 'bad' | 'plain'> = {
-  publication_ready: 'good', accepted: 'good', succeeded: 'good', completed: 'good', current: 'good', validated: 'good', filed: 'good', active: 'good',
+  publication_ready: 'good', passed: 'good', accepted: 'good', succeeded: 'good', completed: 'good', current: 'good', validated: 'good', filed: 'good', active: 'good',
   pending: 'wait', running: 'wait', unfiled: 'wait', 'not-read': 'wait', sending: 'wait', submitted: 'wait', completed_with_uncertainties: 'wait',
   incomplete: 'bad', failed: 'bad', interrupted: 'bad', stale: 'bad', voided: 'bad', uncertain: 'bad', refused: 'bad', blocked: 'bad', budget_exhausted: 'bad', unvalidated: 'bad',
+  breached: 'bad', not_evaluated: 'bad', unsupported: 'bad',
 }
 /** A state as a coloured label; underscores and hyphens read as spaces. */
 export const Badge = ({ state }: { state: string }) => <span className={`badge ${TONE[state] ?? 'plain'}`}>{state.replaceAll(/[_-]/g, ' ')}</span>

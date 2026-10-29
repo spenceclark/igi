@@ -10,7 +10,7 @@ import { migrate, saveReview, sql } from '../src/db.ts'
 import { retainSources } from '../src/files.ts'
 import { useVessel } from '../src/model.ts'
 import { closeSandbox } from '../src/sandbox.ts'
-import { importReview, periodProblem } from '../src/sources.ts'
+import { blockers, importReview } from '../src/sources.ts'
 import { isCurrent } from '../src/evidence.ts'
 
 const [dir, ...rest] = process.argv.slice(2)
@@ -28,9 +28,9 @@ const [existing] = await sql<{ period_end: string }[]>`select period_end::text f
 const review = importReview(dir, id, existing?.period_end)
 const issues = review.sources.flatMap((s) => s.issues)
 console.log(`Imported ${review.id}: ${review.sources.length} sources, ${issues.length} validation issues`)
-const problem = periodProblem(review)
-if (problem) {
-  console.error(problem)
+const problems = blockers(review)
+if (problems.length) {
+  console.error(problems.join('\n'))
   process.exit(1)
 }
 await saveReview({ id: review.id, periodEnd: review.periodEnd, sourceDir: resolve(dir) })

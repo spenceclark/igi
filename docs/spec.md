@@ -297,7 +297,7 @@ The operator uploads the review's source files. Each file is:
 - validated structurally (§7.3);
 - recorded with reporting dates, units, extraction/mapping versions and original-file locations (§7.5).
 
-The sources are read for the review's own period end, never the latest date found in them: positions dated after it are reported, and a review whose sources hold no positions at it cannot be investigated. Missing or invalid data is reported, never silently repaired. Import issues distinguish unreadable or structurally invalid inputs from unresolved interpretation of readable data. An unresolved mapping blocks calculations and conclusions that depend on it; other valid review areas may proceed. The MVP operator can resolve an import mapping before starting the affected analysis, with the answer and source version recorded. The memory stretch also allows Spark to discover an ambiguity, ask a focused question and continue unrelated work (§6.9, §8.8). Neither route guesses a mapping or silently drops affected holdings.
+The sources are read for the review's own period end, never the latest date found in them: positions dated after it are reported, and a review whose sources hold no positions at it cannot be investigated. Missing or invalid data is reported, never silently repaired. Import issues distinguish unreadable or structurally invalid inputs from unresolved interpretation of readable data. An unresolved mapping blocks calculations and conclusions that depend on it; other valid review areas may proceed. In the MVP the operator resolves an import problem outside IGI: IGI detects it and explains the affected source, rows and what depends on them; the operator corrects the source and uploads it again, or removes a stray or conflicting file; then starts a new investigation. Each upload is a new source version, the new run records its own manifest, and outputs made on the earlier sources go stale (§13.3). Recording an operator's correction or mapping inside IGI is not MVP: it belongs to the memory stretch, which also lets Spark discover an ambiguity, ask a focused question and continue unrelated work (§6.9, §8.8). Neither route guesses a mapping or silently drops affected holdings. Two files, or two tables of one file, that provide the same kind of source block an investigation, naming both, until one is removed or they are combined: one source of each kind is read, and an analysis never runs on one while the other is left out.
 
 ### 6.3 Investigate [New IGI]
 
@@ -333,14 +333,16 @@ Spark calls `propose_finding` with a structured finding (§8.2). The backend che
 
 The value must equal the evidence in the same unit, at the precision stated, so a percentage never passes for a pp difference.
 
-**Text.** Every %, pp, bps or £ figure in the statement and explanation must equal a verified claim. So must every bare decimal with two or more places that is not a clause, section or version reference; a bare number with one place reads as a reference. Dates, identifiers and plain counts are left out. Wording about a whole population ("all portfolios", "every holding", "no other fund", "full coverage") needs a verified **coverage claim** of the kind its sentence states (limits met, charges unchanged, look-through complete, weights reconciled), over the population it names: every portfolio in the review for wording about portfolios, otherwise the finding's portfolios. A sentence that can't be tied to a kind stays unsupported. Coverage claims are checked against the population computed from the sources:
+**Text.** Every %, pp, bps or £ figure in the statement and explanation must equal a verified claim. So must every bare decimal with two or more places that is not a clause, section or version reference; a bare number with one place reads as a reference. Dates, identifiers and plain counts are left out. Wording about a whole population ("all portfolios", "every holding", "no other fund", "full coverage"), and assurance of compliance ("fully compliant", "in full compliance", "no breaches", "no exceptions", unless negated), needs a verified **coverage claim** of the kind its sentence states (limits met, charges unchanged, look-through complete, weights reconciled), over the population it names: every portfolio in the review for wording about portfolios, otherwise the finding's portfolios. A sentence that can't be tied to a kind stays unsupported. Coverage claims are checked against the population computed from the sources:
 
 - every holding's weights reconcile, which shows internal consistency only;
-- every holding has look-through data, which shows completeness;
+- every holding has usable look-through data (present, every label in the taxonomy, valid and summing to 1), which shows completeness;
 - every fund held has an unchanged charge, apart from named exceptions;
-- every rule in force is met, apart from named exceptions.
+- every rule version in force is compared by a cited check and met, apart from named exceptions. An exception must be a rule a cited check evaluated (a breach the finding reports): a rule that is unsupported or could not be evaluated is unknown and can't be set aside.
 
 Coverage is accepted only from cited check results, never from a Python result.
+
+**Rule coverage.** Every structured rule version in force at each reporting period is accounted for, for each portfolio it applies to (a rule for ALL once per portfolio): `passed` or `breached` when a check of the run compared it; `unsupported` when no trusted check measures its metric; `not_evaluated` when its inputs were missing, invalid or ambiguous, the rule itself is invalid (a limit type other than max or min, a limit that is not a number, dates that are not dates), or no check of the run compared it. Unsupported and not evaluated never count as met. The run's Investigation tab lists every status, and the committee pack lists the rules in force at the period end that were not evaluated. The catalogue of trusted checks stays bounded: Spark may investigate an unsupported rule with `run_python`, but that is not a trusted check, so a finding resting on it stays visibly unvalidated, never discarded or presented as checked.
 
 **Outcome.** A finding is validated only when every claim and coverage claim checks out and nothing in its text is left unsupported. Validation covers the figures and populations only. The explanation and conclusion are Spark's interpretation, and the assertion, package and pack say so wherever they show the checks. Older findings carry `material_numbers` instead of claims and are shown as they were stored.
 
@@ -489,7 +491,9 @@ Deterministic checks at import:
 - inconsistent valuation dates;
 - weights that do not reconcile;
 - missing look-through coverage;
-- exposure rules naming an asset class the look-through data does not use (a differently written label is reported, never matched);
+- asset-class labels outside the taxonomy (equity, bonds, cash, property, alternatives): case and extra spaces are normalised, with the label as written kept in provenance, and nothing else is mapped, so "Equities" or "Stocks" is reported, never read as equity;
+- structured rules no trusted check can evaluate: a metric no check measures, or a limit type other than max or min;
+- two files, or two tables of one file, providing the same kind of source (this, like having no positions at the period end, blocks an investigation);
 - unit and percentage ambiguity;
 - reporting-period mismatches;
 - portfolios with no applicable policy;
@@ -527,9 +531,9 @@ The importer supports documented, bounded layouts for the demo sources, not arbi
 
 Numbers enter the domain model as decimal strings with explicit units. Document dates and valuation dates are separate. Import must expose unknown units, conflicting dates, missing identifiers, duplicated rows, uncertain extraction and unsupported layouts. Missing/stale formula results must not be silently treated as authoritative values. IGI does not execute macros, workbook external links or embedded document code.
 
-A parser or model may propose extracted fields, but confidence alone does not make an uncertain value authoritative. Show the original passage or cells and require a recorded operator correction when necessary before using the affected value in a check. Preserve both extraction and correction with provenance. Policy prose does not overwrite the authoritative structured limits (§7.2).
+A parser or model may propose extracted fields, but confidence alone does not make an uncertain value authoritative. Show the original passage or cells and keep the affected value out of every check until it is resolved: in the MVP by a corrected source uploaded again (§6.2); recording an operator correction inside IGI is [Stretch]. Preserve both extraction and correction with provenance. Policy prose does not overwrite the authoritative structured limits (§7.2).
 
-An import or mapping issue blocks dependent calculations and findings, not unrelated review areas. Checks must identify incomplete coverage and cannot present a partial denominator as the full portfolio. Exporting the same facts in different supported formats must produce equivalent normalized values, with format-specific provenance. The review UI can open the retained original and show its locator even where deep linking into the file is unavailable.
+An import or mapping issue blocks dependent calculations and findings, not unrelated review areas. Checks must identify incomplete coverage and cannot present a partial denominator as the full portfolio. A check given a missing, invalid, duplicated or unrecognised input gives null for every figure that depends on it, lists the input under `unresolved` with its source rows, and compares no rule on it (`not_compared` names the rules in force it could not compare, with why); it never reports zero or a pass for an unknown. A fund's lack of a row for an asset class is a genuine zero only when its look-through rows at that date are complete: every label in the taxonomy, each class once, valid numbers summing to 1. A UTF-8 byte order mark at the start of a CSV (as Excel writes it) is not part of the header; the file's bytes and hash are kept as uploaded. Exporting the same facts in different supported formats must produce equivalent normalized values, with format-specific provenance. The review UI can open the retained original and show its locator even where deep linking into the file is unavailable.
 
 Scanned/image-only PDFs, general OCR, password-protected files and legacy `.xls`/`.doc` are outside the required demo support. Refuse or explain unsupported inputs; do not return empty data as a successful import. Do not introduce a general document-ingestion platform to support this slice.
 
@@ -549,9 +553,9 @@ The **MVP retains seven tools covering five capabilities**. Every core tool is r
 |---|---|---|
 | Discover sources | `list_sources` | Lists the review's sources with schema, field definitions, units, reporting period, provenance and import validation issues. |
 | Retrieve data and policies | `read_data` | Returns a bounded selection from one source: chosen columns, filters, sort and row limit. Numbers come back as decimal strings. Previous committee actions are a source like any other. |
-| | `get_policy` | Returns a policy's document text by section, and its structured rules for a portfolio and date, with effective versions. |
+| | `get_policy` | Returns a policy's document text by section, and its structured rules for a portfolio and date, with effective versions. Each rule says which trusted check evaluates it, or why none can; never whether it is met. |
 | Execute Python | `run_python` | Runs Python in Monty (§9). The code can call read-only data functions with the same scope and bounds as `read_data`. Returns values, standard output and errors. |
-| Trusted calculations | `run_check` | Runs a named, tested deterministic calculation, such as weight reconciliation, look-through exposure against a limit, concentration, fee change between periods, or performance recomputation. The catalogue is in the tool description; Spark decides whether and when to call them. Each result lists its typed facts, the ids a finding's claims cite (§6.4). |
+| Trusted calculations | `run_check` | Runs a named, tested deterministic calculation, such as weight reconciliation, look-through exposure against a limit, concentration, fee change between periods, or performance recomputation. The catalogue is in the tool description; Spark decides whether and when to call them. Each result lists its typed facts, the ids a finding's claims cite (§6.4). An unresolved input leaves the figures that depend on it null, listed with its rows, and no rule is compared on it (§7.5). |
 | Record work | `record_note` | Records an observation, hypothesis, assumption, open question or missing-information blocker. |
 | | `propose_finding` | Creates a structured finding: statement, classification, review area (source data; allocation and risk; funds, managers and fees; committee actions), portfolios, policy rule and version, cited source rows, execution and check ids, claims and coverage claims with their evidence (§6.4), explanation, assumptions and uncertainties, and the current finding it replaces, if any. The review area decides the procedure step its evidence is proposed for (§12.3). |
 
@@ -1097,8 +1101,8 @@ The operator may download the deck from IGI. If separately submitting it to Cair
 Small and coherent. The gates in §17.1 have passed; the next work makes the existing investigation and review controls visible and the documents usable. Use clear operator actions and status language, without exposing implementation details as the product flow.
 
 - **Reviews:** create/select a reporting period and scope; show investigation status, outstanding clarification/review work and pack versions.
-- **Sources:** upload supported XLSX/PDF/DOCX/CSV, view source metadata, original-file locations and validation issues, inspect extracted rows, and record import corrections/mappings. Show which review areas depend on an unresolved issue.
-- **Investigation:** an explicit **Start investigation** action and chronological trace of actual tool calls, data accessed, Python run, inputs, outputs, notes and findings. Summaries first; code and raw data expand on demand. **[Stretch]** Show focused questions with affected instruments, labels and source locations, an answer control and **Start follow-up run**; present **Confirm for future reviews** separately on knowledge proposals.
+- **Sources:** upload supported XLSX/PDF/DOCX/CSV, view source metadata, original-file locations and validation issues, inspect extracted rows, and remove a file from the review's sources. A correction is a corrected file uploaded again; recording corrections and mappings inside IGI is [Stretch]. Show which review areas depend on an unresolved issue, and what blocks an investigation.
+- **Investigation:** an explicit **Start investigation** action, disabled with the reasons while the sources block one, a chronological trace of actual tool calls, data accessed, Python run, inputs, outputs, notes and findings. Summaries first; code and raw data expand on demand. Every rule version in force with its evaluation status (§6.4). **[Stretch]** Show focused questions with affected instruments, labels and source locations, an answer control and **Start follow-up run**; present **Confirm for future reviews** separately on knowledge proposals.
 - **Findings:** assertion preview as Cairn will show it, investigation PDF preview/download, classification, scoped claim validation and uncertainty, run-qualified identity and revision history. Show assertion and PDF statuses individually, the derived finding state, last-checked time and Cairn link. Actions: **Open Cairn record**, **Submit findings**, **Refresh Cairn status**, resolve uncertain submissions, and withdraw with a reason. There are no Cairn evidence accept/reject controls in IGI.
 - **Pack:** show the precise remaining blockers and enable **Generate committee PDF** only when ready. Provide the matching preview, PDF download, snapshot/evidence references, generation status and version history. Label stale, superseded, incomplete and unverified outputs conspicuously. **[Stretch]** Add **Generate slides** and PPTX/slide-PDF downloads for the same snapshot.
 
@@ -1444,6 +1448,13 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.13 fail-closed inputs, 29 October 2026** (from a code review of the import and check pipeline)
+
+- An asset class is matched in canonical form only (case and spaces); a label outside the taxonomy makes the exposures it affects unknown, and a requested class outside it is refused (§7.3, §7.5).
+- A check's missing, invalid, duplicated or unrecognised input leaves dependent figures null, listed under `unresolved` with its rows, with no rule compared on it (§7.5, §8.2).
+- Every rule version in force is accounted for as passed, breached, not evaluated or unsupported; neither of the last two counts as met, and neither can be set aside in a "limits met" claim. Assurance of compliance ("fully compliant", "no breaches") needs limits-met coverage (§6.4).
+- Two files of one kind block an investigation, and the operator can remove a file. The MVP resolves an import problem by a corrected file uploaded again and a new run; recording corrections and mappings in IGI stays [Stretch] (§6.2, §7.5, §14).
 
 **v0.13 evaluation, 29 October 2026**
 

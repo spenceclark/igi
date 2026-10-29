@@ -14,6 +14,8 @@ export type Section = { id: string; heading: string; text: string; location?: st
 // One source as imported: its rows (or sections, for the policy document) and its validation issues. A file in a
 // documented layout may hold several sources (a workbook with a sheet for each). format is the file's; extractor
 // the layout version that read it; labels each field's original header; provenance each row's original location.
+// unused says why none of the file's content is used: unreadable, unrecognised, unsupported, or a second source of
+// a kind another file already provides, which is also a conflict and blocks an investigation (§6.2).
 export type Source = {
   id: string
   file: string
@@ -27,8 +29,46 @@ export type Source = {
   extractor?: string
   labels?: Record<string, string>
   provenance?: Record<string, Provenance>
+  unused?: string
+  conflict?: boolean
 }
 export type Review = { id: string; periodEnd: string; periods: string[]; sources: Source[] }
+
+// The asset classes IGI measures look-through exposure in: the domain taxonomy (spec §7.5). A label matches a class
+// when it is the same word ignoring case and extra spaces; nothing else is mapped, so "Equities" or "Stocks" is not
+// equity but an unrecognised label.
+export const ASSET_CLASSES = ['equity', 'bonds', 'cash', 'property', 'alternatives'] as const
+/** The taxonomy class a label names, ignoring case and extra spaces; undefined when it names none. */
+export function assetClass(label: string): string | undefined {
+  const c = label.trim().replace(/\s+/g, ' ').toLowerCase()
+  return (ASSET_CLASSES as readonly string[]).includes(c) ? c : undefined
+}
+
+/**
+ * The trusted check that measures a rule metric, with the asset class for an exposure, or undefined when no check
+ * does (§8.2): such a rule is reported as unsupported, never as met. Metrics are compared in their canonical form.
+ */
+export function metricCheck(metric: string): { check: string; asset_class?: string } | undefined {
+  if (metric === 'single_holding_weight') return { check: 'holding_concentration' }
+  if (metric === 'relative_return_deviation') return { check: 'relative_performance' }
+  const cls = /^(.+)_exposure$/.exec(metric)?.[1]
+  return cls && assetClass(cls) === cls ? { check: 'lookthrough_exposure', asset_class: cls } : undefined
+}
+
+/**
+ * Whether a rule version is in force on a date. A rule whose effective dates aren't ISO dates may be in force, so
+ * it counts as in force and stays to be accounted for; ruleProblem says it can't be evaluated.
+ */
+export const inForce = (r: Row, date: string) =>
+  !ISO_DATE.test(r.effective_from) || (!!r.effective_to && !ISO_DATE.test(r.effective_to)) || (r.effective_from <= date && (!r.effective_to || r.effective_to >= date))
+
+/** Why a rule version can't be compared with a value, or undefined when it can: its limit, limit type and dates must be valid. */
+export function ruleProblem(r: Row): string | undefined {
+  if (!isDec(r.threshold)) return `its threshold "${r.threshold}" is not a decimal`
+  if (r.limit_type !== 'max' && r.limit_type !== 'min') return `its limit_type "${r.limit_type}" is neither max nor min`
+  if (!ISO_DATE.test(r.effective_from) || (r.effective_to && !ISO_DATE.test(r.effective_to))) return 'its effective dates are not ISO dates, so when it applies is unknown'
+  return undefined
+}
 
 // The CSV kinds IGI recognises, keyed by source id. A CSV is recognised by its exact header (these field names,
 // in this order). `key` lists the columns that must be unique together, `optional` the ones that may be blank,
@@ -57,7 +97,7 @@ const KINDS: Record<string, Kind> = {
   lookthrough: {
     description: "Underlying asset-class exposures of each fund (look-through data), by date.",
     key: ['instrument_id', 'as_of', 'asset_class'],
-    fields: { instrument_id: 'Fund identifier', as_of: 'Date of the look-through data (ISO date)', asset_class: 'Asset class', exposure_weight: `Fund's exposure to the asset class, ${FRACTION}` },
+    fields: { instrument_id: 'Fund identifier', as_of: 'Date of the look-through data (ISO date)', asset_class: `Asset class: one of ${ASSET_CLASSES.join(', ')}`, exposure_weight: `Fund's exposure to the asset class, ${FRACTION}` },
   },
   performance: {
     description: 'Returns of each portfolio and its benchmark for each period.',
@@ -83,7 +123,7 @@ const KINDS: Record<string, Kind> = {
       rule_id: 'Rule identifier (stable across versions)',
       version: 'Rule version',
       portfolio_id: 'Portfolio the rule applies to, or ALL',
-      metric: 'Measured quantity',
+      metric: 'Measured quantity; get_policy says which trusted check measures it, if any',
       limit_type: 'max or min',
       threshold: `Limit, ${FRACTION}`,
       basis: 'Measurement basis',
@@ -111,18 +151,21 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
  */
 export function importReview(dir: string, id: string, periodEnd?: string): Review {
   const sources: Source[] = []
-  // Adds a source of a known kind, unless an earlier file already provides that kind: then the later one is kept
-  // with an issue and no rows, so nothing reads two versions of the same data.
+  // Adds a source of a known kind, unless an earlier file (or an earlier table of the same file) already provides
+  // that kind: then the later one is kept with an issue and no rows, and marked as a conflict, which blocks an
+  // investigation (blockers), so no analysis runs on one of two sources while the other is silently left out.
   const add = (s: Source) => {
     const first = sources.find((x) => x.id === s.id)
-    if (first) sources.push({ ...s, id: `${s.file}#${s.id}`, rows: [], sections: undefined, provenance: undefined, issues: [`also provides ${s.id}, which ${first.file} already does; it is not used`] })
+    const why = `also provides ${s.id}, which ${first?.file === s.file ? 'an earlier table of the same file' : first?.file} already does`
+    if (first) sources.push({ ...s, id: `${s.file}#${s.id}`, rows: [], sections: undefined, provenance: undefined, issues: [`${why}; one source of each kind is read, so remove one file or combine them into one`], unused: why, conflict: true })
     else sources.push(s)
   }
   for (const file of readdirSync(dir).sort()) {
     const bytes = readFileSync(join(dir, file))
     const sha256 = createHash('sha256').update(bytes).digest('hex')
     const ext = extname(file).toLowerCase()
-    const text = bytes.toString('utf8')
+    // A UTF-8 byte order mark (as Excel writes before a CSV) is not part of the text; the hash is of the bytes as uploaded.
+    const text = bytes.toString('utf8').replace(/^﻿/, '')
     const policy = (title: string, sections: Section[], format: Source['format']) =>
       add({ id: 'policy_document', file, sha256, description: `Policy document: ${title}. Human-readable; the structured rules are authoritative for limits.`, fields: {}, rows: [], sections, issues: [], format, ...(format === 'pdf' ? { extractor: EXTRACTOR } : {}) })
     // The Markdown policy document: each `## ` heading starts a section, whose id is its leading number (`## 3. Limits` is 3).
@@ -143,7 +186,7 @@ export function importReview(dir: string, id: string, periodEnd?: string): Revie
       try {
         doc = importDocument(file, new Uint8Array(bytes), sha256)
       } catch (e) {
-        sources.push({ id: file, file, sha256, description: 'Unreadable source', fields: {}, rows: [], issues: [(e as Error).message], format })
+        sources.push({ id: file, file, sha256, description: 'Unreadable source', fields: {}, rows: [], issues: [(e as Error).message], format, unused: 'unreadable' })
         continue
       }
       if (doc.policy) policy(doc.policy.title, doc.policy.sections, format)
@@ -152,18 +195,18 @@ export function importReview(dir: string, id: string, periodEnd?: string): Revie
         const rows = t.rows.map((r, i) => ({ row_id: `${t.kind}:${i + 1}`, ...Object.fromEntries(Object.keys(k.fields).map((f) => [f, r[f] ?? ''])) }))
         add({ id: t.kind, file, sha256, description: k.description, fields: k.fields, rows, issues: t.issues, format, extractor: EXTRACTOR, labels: t.labels, provenance: Object.fromEntries(rows.map((r, i) => [r.row_id, t.provenance[i]])) })
       }
-      if (!doc.policy && !doc.tables.length) sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: doc.issues, format })
+      if (!doc.policy && !doc.tables.length) sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: doc.issues, format, unused: 'not in a documented layout' })
       continue
     }
     if (ext !== '.csv') {
-      sources.push({ id: file, file, sha256, description: 'Unsupported source', fields: {}, rows: [], issues: [`${ext || 'files without an extension'} is not a supported format; use CSV, XLSX, DOCX, a text-based PDF or the Markdown policy document`], format: 'unsupported' })
+      sources.push({ id: file, file, sha256, description: 'Unsupported source', fields: {}, rows: [], issues: [`${ext || 'files without an extension'} is not a supported format; use CSV, XLSX, DOCX, a text-based PDF or the Markdown policy document`], format: 'unsupported', unused: 'unsupported format' })
       continue
     }
     // A CSV's kind is the one whose fields match its header exactly; anything else is kept with an issue.
     const [header, ...data] = parseCsv(text)
     const kind = Object.entries(KINDS).find(([, k]) => Object.keys(k.fields).join() === header.join())
     if (!kind) {
-      sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: [`unrecognised columns: ${header.join(', ')}`], format: 'csv' })
+      sources.push({ id: file, file, sha256, description: 'Unrecognised source', fields: {}, rows: [], issues: [`unrecognised columns: ${header.join(', ')}`], format: 'csv', unused: 'unrecognised columns' })
       continue
     }
     const [kid, k] = kind
@@ -176,12 +219,44 @@ export function importReview(dir: string, id: string, periodEnd?: string): Revie
   const end = periodEnd ?? dates.at(-1) ?? ''
   const review: Review = { id, periodEnd: end, periods: dates.filter((d) => d <= end), sources }
   if (periodEnd && dates.length && !dates.includes(periodEnd)) sources.find((s) => s.id === 'positions')?.issues.push(`no positions at the review's period end ${periodEnd}; the positions are dated ${dates.join(', ')}`)
+  canonicalise(review)
   validate(review)
   return review
 }
 
-/** Why a review can't be investigated: its sources hold no positions at its period end. Undefined when they do. */
-export const periodProblem = (r: Review) => (r.periods.includes(r.periodEnd) ? undefined : `the sources hold no positions at the review's period end ${r.periodEnd}; upload the sources for that period`)
+/**
+ * Why a review can't be investigated (§6.2), none when it can: its sources hold no positions at its period end, or
+ * two files (or two tables of one file) provide the same kind of source, so an analysis would read one and leave the
+ * other out. Other import issues don't block: they make the calculations that depend on them incomplete.
+ */
+export function blockers(r: Review): string[] {
+  return [
+    ...(r.periods.includes(r.periodEnd) ? [] : [`the sources hold no positions at the review's period end ${r.periodEnd}; upload the sources for that period`]),
+    ...r.sources.filter((s) => s.conflict).map((s) => `${s.file} ${s.unused}: remove one of them or combine them into one file`),
+  ]
+}
+
+/**
+ * Puts harmless differences of form into canonical form (§7.5), keeping the original text in the row's provenance:
+ * an asset-class label in the taxonomy's spelling (case and extra spaces), and a rule's metric and limit type in
+ * lower case without surrounding spaces. A label outside the taxonomy is left as written; validate reports it.
+ */
+function canonicalise(review: Review) {
+  const each = (id: string, field: string, canon: (v: string) => string | undefined) => {
+    const s = review.sources.find((x) => x.id === id)
+    for (const r of s?.rows ?? []) {
+      const c = canon(r[field])
+      if (c === undefined || c === r[field]) continue
+      const p = ((s!.provenance ??= {})[r.row_id] ??= { location: '' })
+      // A value normalised by its layout already keeps the text as the document wrote it.
+      p.original = { [field]: r[field], ...p.original }
+      r[field] = c
+    }
+  }
+  each('lookthrough', 'asset_class', assetClass)
+  each('policy_rules', 'metric', (v) => v.trim().toLowerCase())
+  each('policy_rules', 'limit_type', (v) => v.trim().toLowerCase())
+}
 
 /** The rows of one source by id, or none when the review lacks it. */
 function table(sources: Source[], id: string): Row[] {
@@ -245,19 +320,16 @@ function validate(review: Review) {
   // Every portfolio needs at least one policy rule in force at the period end, its own or one for ALL.
   const rules = review.sources.find((s) => s.id === 'policy_rules')
   for (const p of portfolios) {
-    const applicable = (rules?.rows ?? []).filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && r.effective_from <= review.periodEnd && (!r.effective_to || r.effective_to >= review.periodEnd))
+    const applicable = (rules?.rows ?? []).filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && inForce(r, review.periodEnd))
     if (!applicable.length) rules?.issues.push(`no policy rule applies to ${p} at ${review.periodEnd}`)
   }
-  // An exposure rule's metric names an asset class (`<class>_exposure`), and the look-through data must use the same
-  // label for the rule to be measured. A class the data doesn't name at a period the rule is in force is reported,
-  // not matched to a similar label (Equity for equity), since the exposure can't be told from nil.
-  for (const period of review.periods) {
-    const classes = [...new Set(lookthrough.filter((x) => x.as_of === period).map((x) => x.asset_class))].sort()
-    if (!classes.length) continue
-    for (const r of rules?.rows ?? []) {
-      const cls = /^(.+)_exposure$/.exec(r.metric)?.[1]
-      if (cls && r.effective_from <= period && (!r.effective_to || r.effective_to >= period) && !classes.includes(cls)) rules!.issues.push(`${r.row_id}: ${r.metric} names asset class ${cls}, which no look-through row at ${period} has (classes: ${classes.join(', ')})`)
-    }
+  // Labels and rules the trusted checks can't use, so that what they leave unknown is visible before any run: an
+  // asset class outside the taxonomy makes its fund's exposures unknown at that date; a rule whose metric no check
+  // measures is reported as unsupported, and a rule with an invalid limit type, limit or dates as not evaluable.
+  for (const r of lookthrough) if (r.asset_class && !assetClass(r.asset_class)) review.sources.find((s) => s.id === 'lookthrough')!.issues.push(`${r.row_id}: asset class "${r.asset_class}" is not one of ${ASSET_CLASSES.join(', ')}; the exposures of ${r.instrument_id} at ${r.as_of} are unknown until the source names a class`)
+  for (const r of rules?.rows ?? []) {
+    if (!metricCheck(r.metric)) rules!.issues.push(`${r.row_id}: no trusted check measures ${r.metric}; rule ${r.rule_id} v${r.version} is reported as unsupported, never as met`)
+    if (r.limit_type && r.limit_type !== 'max' && r.limit_type !== 'min') rules!.issues.push(`${r.row_id}: limit_type "${r.limit_type}" is neither max nor min; rule ${r.rule_id} v${r.version} can't be evaluated`)
   }
 }
 
@@ -331,18 +403,26 @@ export function rowExists(review: Review, rowId: string): boolean {
 /**
  * Policy document sections and structured rules, optionally for one portfolio and date (the get_policy tool).
  * A section matches by its number or by part of its heading; rules for ALL portfolios are always included, and a
- * date keeps only the rule versions in force on it.
+ * date keeps only the rule versions in force on it. Each rule says how a trusted check can evaluate it, or why none
+ * can (§8.2): what is possible, never whether it is met.
  */
 export function getPolicy(review: Review, args: { section?: string; portfolio_id?: string; as_of?: string }) {
   const doc = review.sources.find((s) => s.id === 'policy_document')
   const sections = (doc?.sections ?? []).filter((s) => !args.section || s.id === args.section || s.heading.toLowerCase().includes(args.section.toLowerCase()))
   if (args.section && !sections.length) throw new Error(`no section "${args.section}"; sections: ${doc?.sections?.map((s) => s.heading).join(' | ')}`)
-  const rules = table(review.sources, 'policy_rules').filter(
-    (r) =>
-      (!args.portfolio_id || r.portfolio_id === args.portfolio_id || r.portfolio_id === 'ALL') &&
-      (!args.as_of || (r.effective_from <= args.as_of && (!r.effective_to || r.effective_to >= args.as_of))),
-  )
+  const rules = table(review.sources, 'policy_rules')
+    .filter((r) => (!args.portfolio_id || r.portfolio_id === args.portfolio_id || r.portfolio_id === 'ALL') && (!args.as_of || inForce(r, args.as_of)))
+    .map((r): Row => ({ ...r, evaluation: ruleEvaluation(r) }))
   return { document: { file: doc?.file, sections }, rules }
+}
+
+/** How a rule can be evaluated: the trusted check that compares it, or why it is unsupported or can't be evaluated. */
+export function ruleEvaluation(r: Row): string {
+  const m = metricCheck(r.metric)
+  const problem = ruleProblem(r)
+  if (!m) return `unsupported: no trusted check measures ${r.metric}; a run_python result about it is not a trusted check, so a finding resting on it stays unvalidated`
+  if (problem) return `not evaluable: ${problem}`
+  return `run_check ${m.check}${m.asset_class ? ` with asset_class ${m.asset_class}` : ''}`
 }
 
 /** What list_sources returns for each source: file, hash, description, size, sections or columns, and issues. */

@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import { igiBuild } from './build.ts'
 import { CairnRefused, CairnUncertain, type Cairn, type CandidateStatus, type Evidence, type RecordSteps } from './cairn.ts'
-import { runCheck, type Comparison } from './checks.ts'
+import { ruleCoverage, runCheck, type Comparison, type RuleStatus } from './checks.ts'
 import { sql, json, type CheckRow, type FindingRow, type NoteRow, type RunRow } from './db.ts'
 import { abs, dec, fmt } from './decimal.ts'
 import { limitUnit, show, type ClaimResult, type CoverageResult } from './evidence.ts'
@@ -12,7 +12,7 @@ import { findingState, itemState, refreshStatus, PACK_STEP, type ItemState, type
 import { basisWords, CHECKED_SCOPE, runTag } from './package.ts'
 import { renderPdf } from './render.ts'
 import { assemble, reviewDir, sourceSet } from './review-sources.ts'
-import { importReview, type Review } from './sources.ts'
+import { assetClass, importReview, inForce, type Review } from './sources.ts'
 
 // One accepted item: its candidate id, the evidence Cairn reported for it, and the SHA-256 of what IGI sent.
 type Accepted = { candidateId: string; evidence: Evidence; sha256: string }
@@ -69,6 +69,9 @@ export type Snapshot = {
   openActions: CommitteeAction[]
   findings: SnapshotFinding[]
   unresolved: string[]
+  // Rule versions in force at the period end that no check of the latest run evaluated, or that no trusted check
+  // can (§6.4): never shown as met. Absent from packs made before.
+  rulesNotEvaluated?: Pick<RuleStatus, 'portfolio_id' | 'rule_id' | 'version' | 'metric' | 'status' | 'reason'>[]
   excluded: { id: string; version: number; why: string; kind: Kind; evidenceReference: string | null; state: ItemState }[]
   counts: { rejected: number; withdrawn: number; notSubmitted: number }
 }
@@ -316,7 +319,8 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
   const keys = retainSources(dir, data.sources)
   const rows = (id: string) => data.sources.find((s) => s.id === id)?.rows ?? []
   const action = ({ action_id, action, owner, due_date, status, notes }: Record<string, string>): CommitteeAction => ({ action_id, action, owner, due_date, status, notes })
-  const assetClasses = [...new Set(rows('lookthrough').map((r) => r.asset_class))].sort()
+  // Only taxonomy classes can be measured; a label outside it is an import issue, listed with the sources.
+  const assetClasses = [...new Set(rows('lookthrough').map((r) => r.asset_class))].filter((c) => assetClass(c) === c).sort()
   const periods = data.periods.slice(-2)
   const runIds = [...new Set(included.map((r) => r.f.run_id))]
   const checks = runIds.length ? await sql<CheckRow[]>`select * from check_result where run_id in ${sql(runIds)}` : []
@@ -373,14 +377,16 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
           try {
             const exposure = runCheck(data, { check: 'lookthrough_exposure', portfolio_id: p.portfolio_id, period_end: period, asset_class: assetClass }).result.exposure
             return [{ period, assetClass, exposure: typeof exposure === 'string' ? exposure : null }]
-          } catch {
-            return [] // no positions at that period: already a validation issue
+          } catch (e) {
+            // No positions at that period is already a validation issue; anything else is a fault to surface.
+            if (!/^no positions/.test((e as Error).message)) throw e
+            return []
           }
         }),
       ),
     })),
     rules: rows('policy_rules')
-      .filter((r) => r.effective_from <= data.periodEnd && (!r.effective_to || r.effective_to >= data.periodEnd))
+      .filter((r) => inForce(r, data.periodEnd))
       .map(rule),
     openActions: rows('committee_actions')
       .filter((a) => a.status.toLowerCase() !== 'completed')
@@ -425,6 +431,9 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
       }
     }),
     unresolved,
+    rulesNotEvaluated: ruleCoverage(data, await sql<CheckRow[]>`select * from check_result where run_id = ${run.id}`)
+      .filter((x) => x.period === data.periodEnd && (x.status === 'not_evaluated' || x.status === 'unsupported'))
+      .map(({ portfolio_id, rule_id, version, metric, status, reason }) => ({ portfolio_id, rule_id, version, metric, status, reason })),
     excluded: excluded.map((x) => ({ id: x.id, version: x.version, why: x.why, kind: x.kind, evidenceReference: x.evidence?.cairnReference ?? null, state: x.state })),
     counts: {
       rejected: resolved.filter((r) => r.state === 'rejected').length,
@@ -552,6 +561,7 @@ export function renderPack(s: Snapshot, version: number, snapshotSha: string): s
     `Findings accepted in Cairn: ${s.findings.length ? esc(`${s.findings.length} (${types.join(', ')})`) : 'none'}.`,
     `Submitted findings not accepted in Cairn: ${s.counts.rejected}. Findings withdrawn by the operator: ${s.counts.withdrawn}.`,
     `Previous committee actions not recorded as completed: ${s.openActions.length} (listed under outstanding governance items).`,
+    ...(s.rulesNotEvaluated?.length ? [`Policy rules in force not evaluated by a trusted check: ${s.rulesNotEvaluated.length} (listed under “Policy rules not evaluated”); none of them is shown as met.`] : []),
   ]
   // The accepted findings in the overview's groups, each linking to its article; with none, why the pack is empty.
   const groups = s.findings.length
@@ -676,6 +686,15 @@ ${
 <h2>Matters the analysis could not resolve</h2>
 <p class="note">Recorded by the IGI agent in analysis run ${esc(s.run.id)}. These are not findings and were not reviewed in Cairn; any conclusion that depends on one of them remains open.</p>
 ${list(s.unresolved.map(esc))}
+`
+    : ''
+}
+${
+  s.rulesNotEvaluated?.length
+    ? `
+<h2>Policy rules not evaluated</h2>
+<p class="note">Structured rule versions in force at ${esc(s.periodEnd)} that no check of analysis run ${esc(s.run.id)} compared, or that no trusted check measures. Whether they are met is not established.</p>
+${list(s.rulesNotEvaluated.map((r) => esc(`${r.portfolio_id}: ${r.rule_id} v${r.version} (${r.metric}), ${r.status === 'unsupported' ? 'unsupported' : 'not evaluated'}: ${r.reason ?? ''}`)))}
 `
     : ''
 }

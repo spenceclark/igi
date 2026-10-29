@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dec, isDec } from '../src/decimal.ts'
 import { writeDocument } from '../src/docx.ts'
-import { importReview, readData, type Review } from '../src/sources.ts'
+import { blockers, importReview, readData, type Review } from '../src/sources.ts'
 import { callTool, type RunState } from '../src/tools.ts'
 import { writeWorkbook, type CellIn } from '../src/xlsx.ts'
 import { writeZip } from '../src/zip.ts'
@@ -147,12 +147,13 @@ test('formats: unreadable, unsafe and unrecognised files are reported with the r
   assert.equal(source(r, 'positions').file, 'valuation-report.xlsx')
 })
 
-test('formats: a second file of a kind already provided is kept but not used; minutes without a date say so', () => {
+test('formats: a second file of a kind already provided is kept but not used, and blocks an investigation; minutes without a date say so', () => {
   const minutes = writeDocument([{ table: [['Ref', 'Action', 'Owner', 'Due', 'Status', 'Notes'], ['A-1', 'Do it.', 'Owner', '', 'Open', '']] }])
   const dir = variant({ 'committee-minutes-2026-07-15.docx': minutes })
   writeFileSync(join(dir, 'zz-holdings-copy.xlsx'), writeWorkbook([{ name: 'Holdings', rows: [['Portfolio', 'Valuation date', 'Instrument ID', 'Fund', 'Fund type', 'Market value (GBP)', 'Weight']] }]))
   const r = importReview(dir, 'r')
-  assert.match(issues(r).join('\n'), /zz-holdings-copy\.xlsx: also provides positions, which valuation-report\.xlsx already does; it is not used/)
+  assert.match(issues(r).join('\n'), /zz-holdings-copy\.xlsx: also provides positions, which valuation-report\.xlsx already does; one source of each kind is read/)
+  assert.match(blockers(r).join(' '), /zz-holdings-copy\.xlsx also provides positions, which valuation-report\.xlsx already does: remove one of them/)
   assert.match(issues(r).join('\n'), /the minutes do not state the meeting date/)
   assert.equal(source(r, 'committee_actions').rows[0].meeting_date, '')
 })

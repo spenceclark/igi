@@ -24,6 +24,8 @@ create table if not exists review_source (
   uploaded_at timestamptz not null default now(),
   primary key (review_id, file, sha256)
 );
+-- When the operator removed the file from the review's sources; a later upload of the file makes it current again.
+alter table review_source add column if not exists removed_at timestamptz;
 
 -- Operator-started work that outlives a request: an investigation, submitting findings, generating or submitting a
 -- pack, reading Cairn. At most one of each kind runs per review; the partial unique index refuses a second, so a

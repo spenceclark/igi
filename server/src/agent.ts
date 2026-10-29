@@ -38,22 +38,17 @@ export const DEFAULT_BUDGET: Budget = { maxTurns: 60, maxToolCalls: 150, maxPyth
 const sha = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 16)
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s)
 
-/**
- * The first user message: the review period, portfolios, sources, policy sections, the asset classes the look-through
- * data names (the labels lookthrough_exposure accepts), validation issue count and budget.
- */
+/** The first user message: the review period, portfolios, sources, policy sections, validation issue count and budget. */
 function brief(review: Review, budget: Budget): string {
   const portfolios = review.sources.find((s) => s.id === 'portfolios')?.rows ?? []
   const doc = review.sources.find((s) => s.id === 'policy_document')
   const issues = review.sources.reduce((n, s) => n + s.issues.length, 0)
-  const classes = [...new Set((review.sources.find((s) => s.id === 'lookthrough')?.rows ?? []).map((r) => r.asset_class))].sort()
   return [
     `Review ${review.id}. Period under review: the period ending ${review.periodEnd}. Periods in the data: ${review.periods.join(', ')}.`,
     `Portfolios: ${portfolios.map((p) => `${p.portfolio_id} (${p.portfolio_name})`).join(', ')}.`,
     'Objective: review the supplied data against the applicable governance policies, identify the matters that need the Investment Committee’s attention, and substantiate them.',
     `Sources: ${review.sources.map((s) => `${s.id} (${s.rows.length ? `${s.rows.length} rows` : `${s.sections?.length ?? 0} sections`}): ${s.description}`).join('\n- ').replace(/^/, '\n- ')}`,
     `Policy document sections: ${doc?.sections?.map((s) => s.heading).join(' | ') ?? 'none'}.`,
-    `Asset classes in the look-through data: ${classes.join(', ') || 'none'}.`,
     `Import validation issues: ${issues}. Use list_sources for fields, units and details.`,
     `Budget: up to ${budget.maxToolCalls} tool calls and ${budget.maxPython} Python executions.`,
   ].join('\n')

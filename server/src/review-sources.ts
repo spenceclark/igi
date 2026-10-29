@@ -32,13 +32,25 @@ export async function uploadSource(reviewId: string, file: string, bytes: Uint8A
   putFile(`sources/${sha}/${file}`, bytes)
   const [row] = await sql<CurrentSource[]>`
     insert into review_source (review_id, file, sha256) values (${reviewId}, ${file}, ${sha})
-    on conflict (review_id, file, sha256) do update set uploaded_at = now() returning file, sha256, uploaded_at`
+    on conflict (review_id, file, sha256) do update set uploaded_at = now(), removed_at = null returning file, sha256, uploaded_at`
   return row
 }
 
-/** The review's current sources: the latest upload of each file name. */
+/**
+ * Removes a file from the review's current sources, so a stray or conflicting file can be taken out (§6.2). Its
+ * versions stay in the file store and in the runs that analysed them; uploading the file again makes it current.
+ */
+export async function removeSource(reviewId: string, file: string) {
+  const removed = await sql`update review_source set removed_at = now() where review_id = ${reviewId} and file = ${file} and removed_at is null`
+  if (!removed.count) throw new Error(`${file} is not a current source of review ${reviewId}`)
+}
+
+/** The review's current sources: the latest upload of each file name, unless the file was removed since. */
 export const currentSources = (reviewId: string) =>
-  sql<CurrentSource[]>`select distinct on (file) file, sha256, uploaded_at from review_source where review_id = ${reviewId} order by file, uploaded_at desc`
+  sql<CurrentSource[]>`
+    select file, sha256, uploaded_at from (
+      select distinct on (file) file, sha256, uploaded_at, removed_at from review_source where review_id = ${reviewId} order by file, uploaded_at desc
+    ) latest where removed_at is null order by file`
 
 /** The review's period end as an ISO date (§6.1), which the importer analyses the sources for. */
 export async function reviewPeriod(reviewId: string): Promise<string> {

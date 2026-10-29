@@ -10,7 +10,7 @@ import { retainSources } from './files.ts'
 import { openRecord, submitFinding, type FindingRef } from './ledger.ts'
 import { AlreadyRunning, recoverOperations, startOperation } from './operations.ts'
 import { reviewDir, reviewPeriod } from './review-sources.ts'
-import { importReview, periodProblem } from './sources.ts'
+import { blockers, importReview } from './sources.ts'
 
 // A review id is short and safe in a URL, a file name and a Cairn source reference.
 const REVIEW_ID = /^[a-z0-9][a-z0-9-]{1,40}$/
@@ -33,8 +33,10 @@ export async function investigateReview(reviewId: string, opts: { effort?: strin
   const dir = await reviewDir(reviewId)
   const review = importReview(dir, reviewId, await reviewPeriod(reviewId))
   if (!review.sources.length) throw new Error(`review ${reviewId} has no sources to investigate`)
-  const problem = periodProblem(review)
-  if (problem) throw new Error(problem)
+  // A review that can't be investigated says why, before any model call: no positions at its period end, or
+  // two files of one kind (§6.2).
+  const problems = blockers(review)
+  if (problems.length) throw new Error(problems.join('; '))
   retainSources(dir, review.sources)
   return startOperation(reviewId, 'investigate', async () => {
     const r = await investigate(review, { budget: opts.effort ? { effort: opts.effort } : {} })
