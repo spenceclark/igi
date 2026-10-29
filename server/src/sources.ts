@@ -248,6 +248,17 @@ function validate(review: Review) {
     const applicable = (rules?.rows ?? []).filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && r.effective_from <= review.periodEnd && (!r.effective_to || r.effective_to >= review.periodEnd))
     if (!applicable.length) rules?.issues.push(`no policy rule applies to ${p} at ${review.periodEnd}`)
   }
+  // An exposure rule's metric names an asset class (`<class>_exposure`), and the look-through data must use the same
+  // label for the rule to be measured. A class the data doesn't name at a period the rule is in force is reported,
+  // not matched to a similar label (Equity for equity), since the exposure can't be told from nil.
+  for (const period of review.periods) {
+    const classes = [...new Set(lookthrough.filter((x) => x.as_of === period).map((x) => x.asset_class))].sort()
+    if (!classes.length) continue
+    for (const r of rules?.rows ?? []) {
+      const cls = /^(.+)_exposure$/.exec(r.metric)?.[1]
+      if (cls && r.effective_from <= period && (!r.effective_to || r.effective_to >= period) && !classes.includes(cls)) rules!.issues.push(`${r.row_id}: ${r.metric} names asset class ${cls}, which no look-through row at ${period} has (classes: ${classes.join(', ')})`)
+    }
+  }
 }
 
 // ---- Bounded reads, shared by the read_data tool and the sandbox's read_data host function ----

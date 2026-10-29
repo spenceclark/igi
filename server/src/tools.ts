@@ -119,7 +119,7 @@ export const TOOLS = [
     name: 'run_check',
     description: `Runs a named, tested deterministic calculation in decimal arithmetic and returns its result with an id (C...). Rules are the structured rule versions in force at the period end. The result's facts lists each figure as a fact id (C7:exposure) with its value in its unit, its measure and, where it has one, its asset class, instrument or rule; a finding's claims cite these ids. Catalogue (arguments: what it returns):\n${Object.entries(CHECK_CATALOGUE).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\nperiod_end defaults to the review period end; for fee_change, from_period defaults to the previous period end.`,
     parameters: obj(
-      { check: { type: 'string', enum: Object.keys(CHECK_CATALOGUE) }, portfolio_id: str('Portfolio id'), period_end: str('ISO date'), asset_class: str('For lookthrough_exposure, e.g. equity, bonds, cash'), from_period: str('ISO date'), to_period: str('ISO date') },
+      { check: { type: 'string', enum: Object.keys(CHECK_CATALOGUE) }, portfolio_id: str('Portfolio id'), period_end: str('ISO date'), asset_class: str('For lookthrough_exposure: an asset class exactly as the look-through data names it'), from_period: str('ISO date'), to_period: str('ISO date') },
       ['check', 'portfolio_id'],
     ),
   },

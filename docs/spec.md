@@ -489,6 +489,7 @@ Deterministic checks at import:
 - inconsistent valuation dates;
 - weights that do not reconcile;
 - missing look-through coverage;
+- exposure rules naming an asset class the look-through data does not use (a differently written label is reported, never matched);
 - unit and percentage ambiguity;
 - reporting-period mismatches;
 - portfolios with no applicable policy;

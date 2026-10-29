@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { dec, div, fmt, mul, sum } from '../src/decimal.ts'
 import { parseCsv, toCsv } from '../src/csv.ts'
 import { importReview, periodProblem } from '../src/sources.ts'
+import { runCheck } from '../src/checks.ts'
 import { callTool, type RunState } from '../src/tools.ts'
 import { parseFigure, proseFigures, sameFigure, type Unit } from '../src/evidence.ts'
 import { route, useVessel } from '../src/model.ts'
@@ -47,6 +48,18 @@ test('import: tampered data is reported, never repaired', () => {
   assert.match(issues, /possibly a percentage/)
   assert.match(issues, /duplicate/)
   assert.match(issues, /reported weights sum/)
+})
+
+test('import and checks: an asset class labelled differently from its rule is reported, never measured as zero', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'igi-'))
+  cpSync(SCENARIO, dir, { recursive: true })
+  const file = join(dir, 'lookthrough.csv')
+  writeFileSync(file, readFileSync(file, 'utf8').replaceAll(',equity,', ',Equity,'))
+  const review = importReview(dir, 'relabelled')
+  assert.match(review.sources.flatMap((s) => s.issues).join('\n'), /equity_exposure names asset class equity, which no look-through row at \S+ has \(classes: .*Equity/)
+  const portfolio = review.sources.find((s) => s.id === 'portfolios')!.rows[0].portfolio_id
+  assert.throws(() => runCheck(review, { check: 'lookthrough_exposure', portfolio_id: portfolio, asset_class: 'equity' }), /no look-through row at \S+ has asset class "equity"; the classes there are .*Equity/)
+  assert.throws(() => runCheck(review, { check: 'lookthrough_exposure', portfolio_id: portfolio, asset_class: 'equities' }), /asset class "equities"/)
 })
 
 test('findings: a stated figure matches an exact value in its unit, at the precision stated', () => {

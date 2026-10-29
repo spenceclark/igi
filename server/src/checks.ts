@@ -10,7 +10,7 @@ export type Comparison = { rule_id: string; version: string; limit_type: string;
 // The checks run_check offers: each one's arguments and what it returns. The agent reads these texts.
 export const CHECK_CATALOGUE: Record<string, string> = {
   weight_reconciliation: 'portfolio_id, period_end: total market value, each holding\'s computed weight against its reported weight, and the sum of reported weights.',
-  lookthrough_exposure: 'portfolio_id, period_end, asset_class: look-through exposure to the asset class, each holding\'s contribution, coverage, and comparison with the applicable rules for that exposure. If any holding has no look-through data the exposure is unknown, so none is given and no rule is compared.',
+  lookthrough_exposure: 'portfolio_id, period_end, asset_class: look-through exposure to the asset class, each holding\'s contribution, coverage, and comparison with the applicable rules for that exposure. asset_class is written exactly as the look-through data names it; a class no look-through row at the period names is refused. If any holding has no look-through data the exposure is unknown, so none is given and no rule is compared.',
   holding_concentration: 'portfolio_id, period_end: holdings by computed weight, the largest, and comparison with the single-holding rule in force at the period end.',
   relative_performance: 'portfolio_id, period_end: portfolio and benchmark return for the period ending period_end, their difference, and comparison with the applicable tolerance rule.',
   fee_change: 'portfolio_id, from_period, to_period: ongoing charge of each fund held at to_period, at both periods, and the change.',
@@ -71,6 +71,11 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
       if (!a.asset_class) throw new Error('lookthrough_exposure needs asset_class')
       const h = holdings(review, a.portfolio_id, period)
       const lt = rowsOf(review, 'lookthrough')
+      // A class that no look-through row at the period names can't be measured: the exposure may be nil, or written
+      // under another label (Equity for equity), and the data can't say which. Reporting 0 would compare it with the
+      // rule as within the limit, so the check refuses and names the classes the data does use.
+      const classes = [...new Set(lt.filter((x) => x.as_of === period).map((x) => x.asset_class))].sort()
+      if (classes.length && !classes.includes(a.asset_class)) throw new Error(`no look-through row at ${period} has asset class "${a.asset_class}"; the classes there are ${classes.join(', ')}. If a rule names a class the data writes differently, record that as an open question rather than treating the exposure as zero.`)
       const used: string[] = []
       const missing: string[] = []
       let uncovered = 0n

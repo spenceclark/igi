@@ -590,3 +590,12 @@ Done in a separate worktree while another session works on the Fri 30 – Sat 31
 - Regenerating gave the `-docs` answer keys the same evidence anchors as their CSV twins (rule version, action, check). The generator wrote the documents byte-identical.
 - The live `dev-01-docs` run now scores 3/3 issues: benign explained, no false positives, 4/4 material findings validated, checks 18/18 and Python 3/3 re-run. Leak scan clean on all four scenarios; 57 server tests and the 2 scorer tests pass.
 - Still to do: the journey test covers CSV only, so an XLSX upload in it would extend it to the new importers.
+
+**Asset-class labels between the rules and the look-through data** (spec §7.3, §7.5, §8.2)
+
+- Issue found and resolved: `lookthrough_exposure` treated an asset class that no look-through row names as nil. With the look-through labels written `Equity` and an `equity_exposure` rule, asking for `equity` gave an exposure of 0, compared with the rule as within the limit over a real breach; a "limits met" coverage claim citing that check would have validated. A misspelt class also returned 0 without comment.
+- The check now refuses a class that no look-through row at the period names, listing the classes that are there. With no look-through rows at the period it behaves as before: the exposure is unknown.
+- Import validation reports an exposure rule whose class the look-through data does not name at a period the rule is in force, with the classes the data uses. Nothing is matched to a similar label.
+- The agent's brief lists the look-through asset classes, and the `asset_class` argument no longer suggests example labels in place of the data's own. The tool definitions stay the same for every review, so their hash in the run config remains comparable; the per-review list is in the brief.
+- Known ceiling: a rule for a class that no fund has a look-through row for is now an import issue and is never compared, so "limits met" can't be validated for that portfolio until the data names the class (a zero row) or the rule changes. That errs towards a person looking.
+- Verification: a new test in `core.test.ts`; `npm test` 58 pass; type check clean; `eval/verify-checks.ts` passes for all four scenarios; leak scan clean.
