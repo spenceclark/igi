@@ -230,11 +230,13 @@ export async function checkPacks(cairn: Cairn, reviewId: string) {
   await refreshStatus(cairn, reviewId)
   const sent = await sql<{ version: number; submission: PackSubmission }[]>`select version, submission from committee_pack where review_id = ${reviewId} and submission->>'outcome' = 'submitted'`
   if (sent.length) {
+    // Dated when asked for, and never written over a newer read, as in refreshStatus.
+    const asOf = new Date().toISOString()
     const items = new Map((await cairn.getCandidateStatus(sent.map((p) => p.submission.candidateId!))).map((i) => [i.candidateId.toLowerCase(), i]))
     for (const p of sent) {
       const i = items.get(p.submission.candidateId!.toLowerCase())
-      const submission: PackSubmission = { ...p.submission, status: i ? { status: i.status, evidence: i.evidence } : null, readAt: new Date().toISOString() }
-      await sql`update committee_pack set submission = ${json(submission)} where review_id = ${reviewId} and version = ${p.version}`
+      const submission: PackSubmission = { ...p.submission, status: i ? { status: i.status, evidence: i.evidence } : null, readAt: asOf }
+      await sql`update committee_pack set submission = ${json(submission)} where review_id = ${reviewId} and version = ${p.version} and coalesce(submission->>'readAt', '') < ${asOf}`
     }
   }
   await markStalePacks(reviewId)

@@ -196,12 +196,16 @@ export async function refreshStatus(cairn: Cairn, reviewId: string) {
     select s.id, s.candidate_id from cairn_submission s join analysis_run r on r.id = s.run_id
     where r.review_id = ${reviewId} and s.outcome = 'submitted'`
   if (!entries.length) return
+  // The read is dated when it is asked for. Reads can overlap (a refresh, and a pack being opened or generated), and
+  // one asked earlier may answer later: it never overwrites a newer read, so no item rolls back (§15.7). The date is
+  // the database's clock, which dated the reads stored before this rule.
+  const [{ now: asOf }] = await sql<{ now: Date }[]>`select now()`
   const items = new Map((await cairn.getCandidateStatus(entries.map((e) => e.candidate_id))).map((i) => [i.candidateId.toLowerCase(), i]))
   // Ids are compared in lower case. A candidate Cairn left out of its answer is recorded as not-reported.
   for (const e of entries) {
     const i = items.get(e.candidate_id.toLowerCase())
     const status: ReadBack = i ? { status: i.status, evidence: i.evidence } : { status: 'not-reported', evidence: null }
-    await sql`update cairn_submission set cairn_status = ${json(status)}, cairn_read_at = now() where id = ${e.id}`
+    await sql`update cairn_submission set cairn_status = ${json(status)}, cairn_read_at = ${asOf} where id = ${e.id} and (cairn_read_at is null or cairn_read_at < ${asOf})`
   }
 }
 

@@ -76,3 +76,6 @@ server/runs/
 
 # Generated files kept locally until Spaces (server/src/files.ts)
 server/files/
+
+# Evaluation scores (eval/score.ts, eval/run.ts)
+eval/results/

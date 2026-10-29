@@ -1145,7 +1145,8 @@ Isolation is enforced by construction, not just by rule:
 - Monty has no filesystem or network;
 - investigation evaluation runs see no approved knowledge or handover items;
 - scenario file names, sheet names and descriptions are neutral and reveal nothing about planted issues;
-- prompts, tool descriptions and data descriptions contain no expected findings.
+- prompts, tool descriptions and data descriptions contain no expected findings;
+- an automated isolation check runs before every evaluation and starts none if the instructions, tool definitions or source descriptions contain an answer-key figure, fund name or id, a scenario's file names reveal an issue, or anything in the server imports `eval/` or the generator.
 
 ### 15.3 Metrics
 
@@ -1158,6 +1159,8 @@ Isolation is enforced by construction, not just by rule:
 - model and tool cost, and execution time.
 
 Each scenario runs several times. Every run records the model, prompt and tool versions.
+
+A finding is matched to a planted issue by the evidence it cites (the rule version, committee action or check the answer key names for the issue, on the issue's portfolio), never by its wording; its classification then decides whether the issue counts as found. A potential exception or policy inconsistency that matches no planted issue is a false positive. Each claimed figure the generator also computed must equal it, and every check and Python execution is re-run on the same sources to show it reproduces. Results are reported per scenario and per configuration (model, effort, commit, instructions and tools hashes) and never pooled across configurations.
 
 ### 15.4 MVP targets
 
@@ -1440,6 +1443,10 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.13 evaluation, 29 October 2026**
+
+- The isolation check runs before every evaluation; findings are scored by the evidence they cite, per configuration, with numbers cross-checked and calculations re-run (§15.2, §15.3).
 
 **v0.13 clarifications, 29 October 2026** (from the specification audit in the progress log)
 

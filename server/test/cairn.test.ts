@@ -5,7 +5,7 @@ import { type CairnFake, cairnFake } from '../src/cairn-fake.ts'
 
 function setup(opts: Parameters<typeof cairnFake>[0] = {}) {
   const fake = cairnFake(opts)
-  return { fake, cairn: cairnClient({ baseUrl: 'https://cairn.test/', key: fake.key, fetch: fake.fetch }) }
+  return { fake, cairn: cairnClient({ baseUrl: 'https://cairn.test/', key: fake.key, fetch: fake.fetch, now: opts.now }) }
 }
 
 async function startReview(cairn: Cairn, fake: CairnFake, sourceReference = 'IGI review 2026-10') {
@@ -88,19 +88,24 @@ test('cairn: a refusal carries a code and created nothing; a lost or unusable re
   await assert.rejects(limited.findRecords('anything'), refused('agent.lookup-not-permitted'))
 })
 
-test('cairn: 60 requests per 10 minutes, then Retry-After', async () => {
+test('cairn: 60 requests per 10 minutes, then Retry-After, which the client waits out without sending', async () => {
   let t = 0
-  const { cairn } = setup({ now: () => t })
+  const { fake, cairn } = setup({ now: () => t })
   const id = crypto.randomUUID()
   for (let i = 0; i < 60; i++) await cairn.getCandidateStatus([id])
   await assert.rejects(cairn.getCandidateStatus([id]), (e) => refused('rate-limited')(e) && (e as CairnRefused).retryAfter === 600)
+  // Until Retry-After ends, every route is refused at once and nothing reaches Cairn.
+  const sent = fake.requests
+  t = 300_000
+  await assert.rejects(cairn.findRecords('anything'), (e) => refused('rate-limited')(e) && (e as CairnRefused).retryAfter === 300)
+  assert.equal(fake.requests, sent)
   t = 600_000
   assert.deepEqual(await cairn.getCandidateStatus([id]), [])
 })
 
 test('cairn: 100 unfiled candidates, 25 untouched records, status asked 100 ids at a time', async () => {
   let t = 0
-  const { fake, cairn } = setup({ now: () => (t += 10_000) }) // 10 s between requests keeps under the rate limit
+  const { fake, cairn } = setup({ now: () => (t += 10_000) }) // each look at the clock, the fake's or the client's, moves it 10 s: under the rate limit
   for (let i = 0; i < 100; i++) await cairn.submitAssertion({ assertionText: `a${i}`, sourceReference: 'r' })
   await assert.rejects(cairn.submitAssertion({ assertionText: 'one more', sourceReference: 'r' }), refused('candidate-intake.too-many-unfiled'))
   fake.discard(fake.candidates[0].candidateId)

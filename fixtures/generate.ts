@@ -51,6 +51,8 @@ type Scenario = {
   docMismatch?: { portfolio: string; clause: string; docValue: string }
   actions: Action[]
   expectedBreaches: string[]
+  // The answer key. Each issue and benign anomaly names the evidence a finding about it would cite, which
+  // eval/score.ts matches on: a rule ('ID vN'), a committee action id, or a check name.
   answers: { issues: object[]; benign: object[]; distractors: object[] }
 }
 
@@ -88,10 +90,10 @@ const SCENARIOS: Record<string, Scenario> = {
       issues: [
         { id: 'I1', type: 'lookthrough_equity_breach', portfolio: 'P-CAU', period: Q3, rule: 'CAU-EQ-MAX v1', expected: ['potential_exception'], summary: 'Look-through equity exposure exceeds 35% although only 16% is held in funds classified as equity; the multi-asset funds carry the rest.' },
         { id: 'I2', type: 'limit_breach_after_policy_change', portfolio: 'P-BAL', period: Q3, rule: 'BAL-SH v2', expected: ['potential_exception'], summary: 'Largest holding (Harrow Global Equity) exceeds the 20% single-holding limit in force from 1 July 2026; it was within the previous 25% limit.' },
-        { id: 'I3', type: 'overdue_committee_action', portfolio: 'P-CAU', period: Q3, expected: ['outstanding_action', 'potential_exception', 'observation'], summary: 'Action to replace Fenwick Strategic Multi-Asset was due 30 September 2026 and is still in progress; the fund is still held, at a larger weight, and is the highest-cost fund in the portfolio.' },
+        { id: 'I3', type: 'overdue_committee_action', portfolio: 'P-CAU', period: Q3, action: 'A-2026-07-01', expected: ['outstanding_action', 'potential_exception', 'observation'], summary: 'Action to replace Fenwick Strategic Multi-Asset was due 30 September 2026 and is still in progress; the fund is still held, at a larger weight, and is the highest-cost fund in the portfolio.' },
       ],
       benign: [
-        { id: 'B1', type: 'market_driven_fall', portfolio: 'P-GRO', period: Q3, must_not_be: ['potential_exception'], summary: 'Growth returned -8.7% in Q3, below the -5% notification level, but its benchmark returned -8.2%: within the 1.5pp tolerance and market-driven. Notify the Committee; not a breach.' },
+        { id: 'B1', type: 'market_driven_fall', portfolio: 'P-GRO', period: Q3, rule: 'ALL-REL v1', action: 'A-2026-07-04', check: 'relative_performance', must_not_be: ['potential_exception'], summary: 'Growth returned -8.7% in Q3, below the -5% notification level, but its benchmark returned -8.2%: within the 1.5pp tolerance and market-driven. Notify the Committee; not a breach.' },
       ],
       distractors: [
         { id: 'D1', summary: 'Tarn Property Securities reduction in Balanced is complete and consistent with Q3 holdings (5.5%).' },
@@ -134,11 +136,11 @@ const SCENARIOS: Record<string, Scenario> = {
       issues: [
         { id: 'I1', type: 'lookthrough_equity_breach', portfolio: 'P-BAL', period: Q3, rule: 'BAL-EQ-MAX v1', expected: ['potential_exception'], summary: 'Look-through equity exposure exceeds the 65% maximum although funds classified as equity are 56%; the multi-asset funds carry the rest.' },
         { id: 'I2', type: 'limit_breach_after_policy_change', portfolio: 'P-GRO', period: Q3, rule: 'GRO-SH v2', expected: ['potential_exception'], summary: 'Largest holding (Harrow Global Equity) exceeds the 25% single-holding limit in force from 1 July 2026; it was within the previous 30% limit.' },
-        { id: 'I3', type: 'overdue_committee_action', portfolio: 'P-GRO', period: Q3, expected: ['outstanding_action', 'potential_exception', 'observation'], summary: 'Action to reduce Mardale Emerging Markets Equity in Growth to no more than 10% was due 30 September 2026 and is still open; the holding is 13%.' },
-        { id: 'I4', type: 'policy_document_table_disagreement', portfolio: 'P-CAU', expected: ['policy_inconsistency'], summary: 'The policy document sets the Cautious cash limit at 8%; the structured rules table says 10%.' },
+        { id: 'I3', type: 'overdue_committee_action', portfolio: 'P-GRO', period: Q3, action: 'A-2026-07-01', expected: ['outstanding_action', 'potential_exception', 'observation'], summary: 'Action to reduce Mardale Emerging Markets Equity in Growth to no more than 10% was due 30 September 2026 and is still open; the holding is 13%.' },
+        { id: 'I4', type: 'policy_document_table_disagreement', portfolio: 'P-CAU', rule: 'CAU-CASH v1', expected: ['policy_inconsistency'], summary: 'The policy document sets the Cautious cash limit at 8%; the structured rules table says 10%.' },
       ],
       benign: [
-        { id: 'B1', type: 'market_driven_fall', portfolio: 'P-BAL', period: Q3, must_not_be: ['potential_exception'], summary: 'Balanced returned -6.2% in Q3, below the -5% notification level, but its benchmark returned -5.8%: within the 1.5pp tolerance and market-driven. Notify the Committee; not a breach.' },
+        { id: 'B1', type: 'market_driven_fall', portfolio: 'P-BAL', period: Q3, rule: 'ALL-REL v1', action: 'A-2026-07-04', check: 'relative_performance', must_not_be: ['potential_exception'], summary: 'Balanced returned -6.2% in Q3, below the -5% notification level, but its benchmark returned -5.8%: within the 1.5pp tolerance and market-driven. Notify the Committee; not a breach.' },
       ],
       distractors: [
         { id: 'D1', summary: 'Brackley Absolute Return replacement in Cautious is complete; the fund is no longer held.' },

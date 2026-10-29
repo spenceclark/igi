@@ -153,7 +153,7 @@ const FIGURE = /(?<![\w.§/-])([+\-−]?)\s?(£\s?)?(\d[\d,]*(?:\.\d+)?)(\s?(?:%
 // Words that make a bare decimal a reference rather than a figure: clause 2.4, section 4.2, policy 2.4, version 1.1.
 const REFERENCE = /(?:clause|section|para(?:graph)?|policy|rule|version|v|s|§)\s*$/i
 
-/** Parses one figure: 36.97%, -1.97pp, 2 bps, £1,000,000.00, 16 or 0.3697. Undefined if it isn't one. */
+/** Parses one figure: 12.34%, -0.56pp, 2 bps, £1,000,000.00, 16 or 0.1234. Undefined if it isn't one. */
 export function parseFigure(s: string): Figure | undefined {
   const m = new RegExp(`^${FIGURE.source}$`, 'i').exec(s.trim())
   return m ? toFigure(m) : undefined
@@ -184,7 +184,7 @@ function toFigure(m: RegExpExecArray): Figure | undefined {
 
 /**
  * The material figures in a finding's text: anything with %, pp, bps or £, and any bare decimal with two or more
- * places (0.3697) that isn't a clause, section or version reference. A bare number with one place (2.4) reads as a
+ * places (0.1234) that isn't a clause, section or version reference. A bare number with one place (2.4) reads as a
  * reference far more often than a figure. Dates, identifiers and plain integers (counts, years) are left out.
  */
 export function proseFigures(s: string): Figure[] {
@@ -200,7 +200,7 @@ export function proseFigures(s: string): Figure[] {
 const scaled = (x: Dec, unit: Figure['unit'], stated: Figure['unit']) => (stated === 'bare' || unit === 'gbp' || unit === 'count' ? x : x * 100n)
 /**
  * Whether a stated figure equals an exact value at the precision stated. Units must agree (a bare decimal matches
- * any); `ignoreSign` lets an unsigned figure in prose ("exceeded by 1.97pp") match a negative value.
+ * any); `ignoreSign` lets an unsigned figure in prose ("exceeded by 0.56pp") match a negative value.
  */
 export function sameFigure(stated: Figure, exact: Dec, unit: Unit, ignoreSign = false): boolean {
   if (stated.unit !== 'bare' && stated.unit !== unit) return false
@@ -211,7 +211,7 @@ export function sameFigure(stated: Figure, exact: Dec, unit: Unit, ignoreSign = 
   return fmt(a, stated.places) === fmt(b, stated.places)
 }
 
-/** An exact value as a reader sees it: 36.97%, -1.97pp, £1,000.00 or 3. */
+/** An exact value as a reader sees it: 12.34%, -0.56pp, £1,000.00 or 3. */
 export function show(exact: string | Dec, unit: Unit): string {
   const x = typeof exact === 'string' ? dec(exact) : exact
   return unit === 'fraction' ? `${fmt(x * 100n, 2)}%` : unit === 'points' ? `${fmt(x * 100n, 2)}pp` : unit === 'gbp' ? `£${fmt(x, 2)}` : fmt(x, 0)

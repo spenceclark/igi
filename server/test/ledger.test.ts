@@ -120,7 +120,7 @@ test('ledger: submit, read back and follow findings through Cairn', { skip }, as
 
   let t = 0
   const fake = cairnFake({ now: () => t })
-  const cairn = cairnClient({ baseUrl: 'https://cairn.test', key: fake.key, fetch: fake.fetch })
+  const cairn = cairnClient({ baseUrl: 'https://cairn.test', key: fake.key, fetch: fake.fetch, now: () => t })
   const config = { subjectReference: fake.subject.cairnReference, procedureName: fake.procedure.name }
   const stateOf = async (id: string, version = 1) => {
     const [row] = await db.sql<FindingRow[]>`select * from finding where run_id = ${RUN} and id = ${id} and version = ${version}`

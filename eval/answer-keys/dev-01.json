@@ -73,6 +73,7 @@
       "type": "overdue_committee_action",
       "portfolio": "P-CAU",
       "period": "2026-09-30",
+      "action": "A-2026-07-01",
       "expected": [
         "outstanding_action",
         "potential_exception",
@@ -87,6 +88,9 @@
       "type": "market_driven_fall",
       "portfolio": "P-GRO",
       "period": "2026-09-30",
+      "rule": "ALL-REL v1",
+      "action": "A-2026-07-04",
+      "check": "relative_performance",
       "must_not_be": [
         "potential_exception"
       ],

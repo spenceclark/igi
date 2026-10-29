@@ -438,3 +438,93 @@ The seven defects above are resolved, each with a regression test that mirrors t
     - F6 had charges coverage for every portfolio, but its sentence "with complete fee coverage apart from this fund, no other fund held changed its charge" was refused. The word "coverage" also demanded look-through coverage, which is a false negative. Its revision F7 dropped the word.
   - F10 ("every other structured rule in force was met", with the two breaches as exceptions) validated on `limits_met` for all three portfolios. F9 (weights reconcile and look-through complete for every holding) needed, and had, both kinds.
   - Fixed after the run: "coverage" right after fee, charge or OCF no longer asks for look-through coverage. The validation tests now include F6's sentence, which validates on charges coverage alone. `npm test`: 41 pass.
+
+## 2026-10-29 (Sun 1 – Mon 2 Nov workstream, started early)
+
+**Evaluation harness, contradictory-data and revision tests, rendering checks and test-double journey** (spec §12.6, §15.2–§15.8)
+
+Done in a separate worktree while another session works on the Fri 30 – Sat 31 Oct items. Fixes are against the development scenarios only.
+
+- Issues found and resolved:
+  - **Answer-key leak in a tool description.** propose_finding's description gave "36.97%, 1.97pp" as example claim values. Those are dev-01's planted equity exposure and its excess over the limit. They came back with the v0.12 claims text, after the Gate B fix had removed an earlier copy. The dev-01 runs since v0.12 (`dev-01-claims`, `dev-01-audit`) had them in their tool definitions; no dev-02 run did. The examples are now 12.34% and 0.56pp, and the comments in `evidence.ts` use neutral figures too.
+  - **A planted limit in a data description.** The sources' fraction description read "0.2500 = 25%", and 25% is a planted single-holding limit. It now reads "0.1234 = 12.34%".
+  - **A status read could roll an item back.** Reads of Cairn overlap: a refresh, opening a pack and generating one each read. `refreshStatus` stamped each result with the time it was written, not the time it was read. So an earlier read that answered after a later one put back the state it saw, and a voided item read back as accepted again. Each read is now dated, by the database's clock, when it is asked for, and never overwrites a newer one. The pack's own submission status follows the same rule.
+  - **Retry-After was recorded but not respected.** After a 429, the poller, refreshes and submissions all went on asking. The client now refuses every request, unsent, until Cairn's Retry-After ends. The allowance is shared by every route and review, so one rule covers all of them. It is kept in memory, so after a restart the first request learns the wait again from Cairn.
+  - **Scenario hashes depended on the checkout.** A Windows checkout converted the scenario files to CRLF, so their SHA-256 differed from the hashes the runs recorded. `.gitattributes` keeps `fixtures/scenarios/**` at LF, and the scorer accepts either form.
+- Harness (`eval/`):
+  - `leak-scan.ts` is the isolation check. It fails if the instructions, tool definitions or source descriptions contain any of these from an answer key:
+    - a planted figure, as a fraction or a percentage;
+    - a breach's excess in pp;
+    - a fund name or its first word;
+    - an instrument, rule, action or portfolio id.
+
+    It also fails if a scenario's file name gives an issue away, or if anything under `server/` refers to `eval/` or the generator. It found both leaks above, and closes the leak-scan item under Open.
+  - `score.ts` scores saved runs from the database and changes nothing. It finds the scenario from the run's source hashes. Each current finding is matched to a planted issue by the evidence it cites, never by its wording: the rule version, committee action or check the answer key names, on the issue's portfolio. Its classification then decides whether the issue was found, misclassified or missed.
+    - A benign anomaly is scored explained, flagged or not addressed.
+    - A potential exception or policy inconsistency that matches nothing is a false positive.
+    - Each claimed figure must equal the generator's, where the generator computed it.
+    - Every check is re-run, and every successful Python execution run again, on the same sources. A run made on other code is labelled "re-run on the current code", not "reproduced".
+    - Results are grouped by scenario and configuration (model, effort, commit, instructions and tools hashes). Each group's line says which §15.4 targets it meets, and results are written to `eval/results/` (gitignored).
+    - A run on a development build is never labelled "reproduced", today's live runs included. For the holdout to show "calculations reproduce", it must run from the clean tagged commit of the freeze.
+  - `run.ts` runs the isolation check first and starts nothing if it fails. It then creates a fresh review of each scenario, runs Spark on it and scores the run.
+  - `score.test.ts` tests the matching rules: a finding must cite the rule version in force, on the issue's portfolio; an action matches by its row or id; a benign anomaly by its check.
+  - The answer keys gained the evidence each issue is matched by: an action id for each overdue action, the cash rule for dev-02's document disagreement, and the tolerance rule, standing action and check for each benign fall. The scenario files are unchanged.
+- Scores:
+  - All 11 saved runs, at no cost:
+    - Ten are dev-01 runs (one other matches no scenario). The 9 that got past their first turn each found 3 of 3 issues and explained the benign fall, with no false positives; the tenth was a one-turn check of the Vessel routing.
+    - Two pre-v0.12 runs each have one unvalidated material finding.
+    - Older runs' checks give different results when re-run, because check results have since gained fields.
+  - Live, with the leak fixed: `node eval/run.ts dev-01 dev-02`, one run each, $0.64 in all, on a development build of 334520a.
+    - dev-01: 3 of 3 found and the benign fall explained, with no false positives. 4 of 4 material findings validated, and claimed figures equal the generator's (5 of 5). Checks 18 of 18 and Python 4 of 4 gave the same results when re-run.
+    - dev-02: 4 of 4 found, including the document/rule disagreement as a policy inconsistency, and the benign fall explained, with no false positives. 5 of 5 material findings validated, and claimed figures equal the generator's (3 of 3). Checks 18 of 18 and Python 1 of 1 gave the same results when re-run.
+- §15.7, each required case and its tests:
+
+| §15.7 case | Tests |
+|---|---|
+| Omitted figure; wrong measure, portfolio, period or rule version; % against pp; quoted action targets; population claims hiding a holding | `validation.test.ts` (8 cases); new: a holding's weight claimed for another instrument (`contradictions.test.ts`) |
+| Policy document against the structured limit | `validation.test.ts`: both shown, the rule governs, no limit taken from the document text |
+| Completed action against holdings; trigger without delivery evidence | `validation.test.ts` (2 cases) |
+| Authoritative evidence resolves a breach, and the reverse | `validation.test.ts`, revisions (2 cases) |
+| Unvalidated replacement; unknown, self, cross-run, cycle and already-revised references; rejected revisions never counted or submitted | `validation.test.ts`, `pack.test.ts`; new: a finding naming its own next id, run- and review-qualified ids, and one current finding after every attempt |
+| Revised sources as new versions; a new run when the manifest changes; earlier active evidence reconciled | `operations.test.ts` (upload versions), `pack.test.ts` (changed sources, a later run, v1 evidence beside v2) |
+| Assertion or PDF alone, either discarded or voided, wrong record, omitted id, `filed` without evidence | `ledger.test.ts` (19 states), `pack.test.ts`; new: the same F1 label in two runs never pairs, before or after both are filed |
+| Restart, repeated refreshes and clicks, out-of-order status, rate limit, evidence changing during generation | `operations.test.ts` (restart, one operation of a kind at a time), `ledger.test.ts` (uncertain never resent); new: a late older read never rolls back; Retry-After waited out unsent (`cairn.test.ts`); a void during generation caught at the next check, and the pack refused for submission |
+| A withdrawn or rejected version whose package stays active; an excluded item filed later | `pack.test.ts` |
+
+- Not simulated: a process dying mid-render. The pack row is written only after both files are stored, so a failed render leaves no pack, and the next generation takes the same version number.
+- Rendering (§15.8), `test/render.test.ts`, on the real pipeline. Findings are proposed through the tools on a copy of dev-01 made to stress the layout:
+  - a fund name of 119 characters, in the positions and in the open action that names it;
+  - a figures table of 19 claims;
+  - 106 cited rows;
+  - an unbroken 300-character line of executed code, with 50 lines of output;
+  - negative returns and differences;
+  - an unvalidated exception and an open question.
+
+  They are submitted and filed in the test double, and a pack is generated with findings, then with none. Checks:
+  - Each package PDF is the stored file, byte for byte, with its recorded name, media type and hash.
+  - Each package's text holds every claim's label and value, the statement, ids, run tag, cited rows, uncertainties and appendix headings, and the long code line whole.
+  - The pack shows each finding's figures, the long fund name, the unresolved matters, the snapshot hash, and a link from the overview to each finding.
+  - A layout check reads every page with pdf.js. It requires "Page n of N" on each page, no text off the page, no text under 6pt, no runs of text drawn over each other, and body text at 10pt. Chromium doesn't clip a line wider than the page: it shrinks the whole document (to 6.7pt in the test). A second test shows the check catching overlap, tiny text and that shrinking.
+- Inspected at normal reading size, with page images from `scripts/pdf-pages.ts`: the 7-page F1 package, the 10-page pack and the 8-page empty pack.
+  - Table headers repeat on continuation pages.
+  - The 300-character line and the long name wrap inside their blocks.
+  - Negative figures read as -8.70% and -0.50pp, and the allocation change as −0.98 pp.
+  - Each section starts on a new page, so some pages are mostly empty.
+  - Noted, not changed, since the PDF templates belong to the other workstream: the pack's grey meta lines print larger than its 10pt body text, and the footer is 6pt.
+- A version whose Markdown package was stored before PDFs resends that file, with its name, hash and media type, and no PDF is made for it: a PDF would need its own version and acceptance (`contradictions.test.ts`).
+- Test-double journey, `test/journey.test.ts`, through the HTTP API:
+  - sign in, create a review and upload dev-01;
+  - run an investigation through the real loop and tools, with the model replaced by a scripted one served over HTTP. It builds its finding from the facts its check returned, so the finding is validated against the run's own check;
+  - submit, then file only the assertion: the finding is pending, and the pack is blocked both when asked and when generation is attempted;
+  - file the package: pack v1 is generated, and its PDF shows every claimed figure;
+  - void the package: opening the pack answers 409 stale, the historical copy is labelled stale, and a new pack is blocked as incomplete.
+- Verification:
+  - `npm test`: 50 pass, none skipped. New: 6 contradiction cases, 2 rendering tests and the journey.
+  - Server, web and eval type checks are clean.
+  - `eval/verify-checks.ts` passes for both scenarios, as do the leak scan and the scorer's tests.
+- Not covered:
+  - the deployment renderer (deployment is parked);
+  - XLSX, PDF and DOCX sources in the journey, which join it when their importers land;
+  - the slide deck (stretch);
+  - holdout scenarios, which are written after the freeze.
+- Overlap with the other workstream, for merging: `refreshStatus` (`ledger.ts`), the pack submission read in `checkPacks` (`committee-pack.ts`), the Cairn client's Retry-After (`cairn.ts`), the fraction description (`sources.ts`) and the claims example (`tools.ts`). Each change is a few lines. Wherever a test moves the fake's clock, it now passes the same clock to the client as `now`.

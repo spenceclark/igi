@@ -47,15 +47,24 @@ export class CairnUncertain extends Error {}
 
 export type Cairn = ReturnType<typeof cairnClient>
 
-/** A client for Cairn's agent intake API at baseUrl, sending the agent key. `fetch` can be the test double's. */
-export function cairnClient(opts: { baseUrl: string; key: string; fetch?: typeof fetch; timeoutMs?: number }) {
+/**
+ * A client for Cairn's agent intake API at baseUrl, sending the agent key. `fetch` can be the test double's, and
+ * `now` its clock.
+ */
+export function cairnClient(opts: { baseUrl: string; key: string; fetch?: typeof fetch; timeoutMs?: number; now?: () => number }) {
   const base = `${opts.baseUrl.replace(/\/+$/, '')}/api/intake/v1`
   const send = opts.fetch ?? fetch
+  const now = opts.now ?? Date.now
+  // When Cairn's last Retry-After ends. The agent's allowance is shared by every route and review, so until then
+  // every request is refused here, unsent, as Cairn would refuse it (§12.5).
+  // ponytail: kept in memory, so a restart forgets it and the first request after one learns it again from Cairn.
+  let waitUntil = 0
 
   // One request: JSON or bytes in, parsed JSON out, T being the response shape Cairn documents for the route.
   // A success with a JSON body is returned; an error with a problem code throws CairnRefused; anything else
   // (no response, a timeout, an unreadable body) throws CairnUncertain.
   async function call<T>(method: string, path: string, req: { query?: string[][]; json?: unknown; bytes?: Uint8Array<ArrayBuffer>; headers?: Record<string, string> } = {}): Promise<T> {
+    if (now() < waitUntil) throw new CairnRefused(429, { code: 'rate-limited', detail: 'waiting for Retry-After; not sent' }, Math.ceil((waitUntil - now()) / 1000))
     const url = base + path + (req.query?.length ? `?${new URLSearchParams(req.query)}` : '')
     const headers: Record<string, string> = { Authorization: `Bearer ${opts.key}`, ...req.headers }
     if (req.json !== undefined) headers['Content-Type'] = 'application/json'
@@ -76,6 +85,7 @@ export function cairnClient(opts: { baseUrl: string; key: string; fetch?: typeof
     const problem = body as Partial<Problem> | null
     if (!res.ok && typeof problem?.code === 'string') {
       const retryAfter = Number(res.headers.get('retry-after'))
+      if (retryAfter > 0) waitUntil = now() + retryAfter * 1000
       throw new CairnRefused(res.status, { ...problem, code: problem.code }, retryAfter > 0 ? retryAfter : null)
     }
     throw new CairnUncertain(`${method} ${path}: HTTP ${res.status} without a usable body`)

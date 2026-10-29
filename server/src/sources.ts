@@ -26,7 +26,7 @@ export type Review = { id: string; periodEnd: string; periods: string[]; sources
 // in this order). `key` lists the columns that must be unique together, `optional` the ones that may be blank,
 // and `fields` describes each column for the agent (list_sources shows them).
 type Kind = { description: string; key: string[]; optional?: string[]; fields: Record<string, string> }
-const FRACTION = 'decimal string, fraction of 1 (0.2500 = 25%)'
+const FRACTION = 'decimal string, fraction of 1 (0.1234 = 12.34%)'
 const KINDS: Record<string, Kind> = {
   portfolios: {
     description: 'Model portfolios with objective and benchmark.',

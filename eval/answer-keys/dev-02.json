@@ -73,6 +73,7 @@
       "type": "overdue_committee_action",
       "portfolio": "P-GRO",
       "period": "2026-09-30",
+      "action": "A-2026-07-01",
       "expected": [
         "outstanding_action",
         "potential_exception",
@@ -84,6 +85,7 @@
       "id": "I4",
       "type": "policy_document_table_disagreement",
       "portfolio": "P-CAU",
+      "rule": "CAU-CASH v1",
       "expected": [
         "policy_inconsistency"
       ],
@@ -96,6 +98,9 @@
       "type": "market_driven_fall",
       "portfolio": "P-BAL",
       "period": "2026-09-30",
+      "rule": "ALL-REL v1",
+      "action": "A-2026-07-04",
+      "check": "relative_performance",
       "must_not_be": [
         "potential_exception"
       ],

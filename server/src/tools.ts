@@ -137,7 +137,7 @@ export const TOOLS = [
       `Classifications: ${Object.entries(CLASSIFICATIONS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
       `review_area is the part of the review the finding belongs to: ${Object.entries(REVIEW_AREAS).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
       'Cite the source row_ids, execution ids (X...) and check ids (C...) from this run that support it; unknown ids are rejected.',
-      'claims lists every figure the finding relies on, and every %, pp, bps or £ figure in its statement and explanation must be one of them. Each claim has a key, a label, a value written as a reader sees it (36.97%, 1.97pp, £1,000,000; a fraction as %, a difference between two fractions or a margin as pp), a measure, the scope it applies to, and one source:',
+      'claims lists every figure the finding relies on, and every %, pp, bps or £ figure in its statement and explanation must be one of them. Each claim has a key, a label, a value written as a reader sees it (12.34%, 0.56pp, £1,000,000; a fraction as %, a difference between two fractions or a margin as pp), a measure, the scope it applies to, and one source:',
       '- fact: a fact id from a run_check result, for any computed or reported figure;',
       '- rule and version: a structured policy rule version in force, for a numerical limit (measure policy_limit);',
       '- quote with row or section: the exact words of a committee_actions row or a policy document section that contain the figure, for a threshold or target written only in text (measure action_threshold or document_figure). A quoted figure is an extract a person reads in context, never a structured rule;',
