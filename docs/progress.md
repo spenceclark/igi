@@ -416,7 +416,15 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
 - Not yet:
   - Files saved by Excel and Word themselves: the readers follow the formats, but were exercised on files IGI's own writers produced.
   - Encrypted PDFs: refusal relies on pdfjs's password error, which is untested here.
-  - A live Spark run on the docs variant.
+- Live run on the docs variant (review `dev-01-docs`, no Cairn calls):
+  - `completed_with_uncertainties` in 27 turns, 44 tool calls, 3 Python runs and 18 checks, for $0.34.
+  - It proposed the same eight current findings as the CSV run, all validated: the two breaches, two outstanding actions, the action verified as met, the fee change, every other limit met, and the data reconciling with complete look-through.
+  - Four revisions, none caused by the formats; each corrected the model's own claim construction:
+    - an exposure claim without its asset class;
+    - a comparison naming the wrong inputs, twice;
+    - a June figure claimed without its period;
+    - whole-population wording with no coverage.
+  - Both figures quoted from the DOCX minutes' action table validated against the extracted text, as they do against the CSV: the notification threshold and the reduction cap.
 
 **Open**
 
