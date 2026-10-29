@@ -8,7 +8,7 @@ import { migrate, saveReview, sql } from '../server/src/db.ts'
 import { retainSources } from '../server/src/files.ts'
 import { useVessel } from '../server/src/model.ts'
 import { closeSandbox } from '../server/src/sandbox.ts'
-import { importReview, periodProblem } from '../server/src/sources.ts'
+import { blockers, importReview } from '../server/src/sources.ts'
 import { answerKeys, scenarioDir } from './answer-keys.ts'
 import { leakScan } from './leak-scan.ts'
 import { runLine, saveScores, scoreRun, summary, type RunScore } from './score.ts'
@@ -40,8 +40,8 @@ for (const scenario of scenarios)
     // A fresh review each time, so no run sees another's findings, submissions or packs.
     const id = `eval-${scenario}-${stamp}-${n}`
     const review = importReview(scenarioDir(scenario), id)
-    const problem = periodProblem(review)
-    if (problem) throw new Error(`${scenario}: ${problem}`)
+    const problems = blockers(review)
+    if (problems.length) throw new Error(`${scenario}: ${problems.join('; ')}`)
     await saveReview({ id, periodEnd: review.periodEnd, sourceDir: scenarioDir(scenario) })
     retainSources(scenarioDir(scenario), review.sources)
     console.log(`\n${id}: investigating`)

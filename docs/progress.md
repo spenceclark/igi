@@ -631,3 +631,10 @@ This supersedes the asset-class behaviour in the previous entry. An asset class 
   - Unrecognised or unreadable files are reported but don't block an investigation, and their content is not used. If such a file held a kind's only data, the checks report that data as missing.
   - Compliance wording is matched by pattern: a paraphrase it doesn't recognise needs no coverage, though any figure in it still needs a claim.
   - No live model run since the tool schema changed.
+
+**Live run on the fail-closed tools** (dev-01, `run-eval-dev-01-20261029T1947-1-20261029T194718`)
+
+- Issue found and resolved first: `eval/run.ts` still imported `periodProblem`, which `blockers` replaced. The eval scripts are not in the server's type check; they now type-check clean as ES modules.
+- Score: 3/3 issues found, benign anomaly explained, no false positives, 4/4 material findings validated, claimed facts equal to the generator's 7/7, checks 20/20 and Python 3/3 re-run the same. The run ended `completed_with_uncertainties` with three open questions. $0.578, 33 turns, 54 tool calls (earlier dev-01 runs: $0.23 to $0.34).
+- The new rules in live use: every check was on clean data, so none reported `unresolved` or `not_compared`. At the period end all 14 rule versions were evaluated (12 passed, 2 breached); at the earlier period 12 were not evaluated, as Spark checked that period for only two rules. One revision came from the tightened exception rule: a limits-met claim named the two breached rules as exceptions without citing the checks that compared them, was refused, and validated once Spark cited them.
+- Most of the extra cost was not from these changes. Spark first put `fact` beside the claim rather than inside `source`, was told only "give exactly one source", and proposed three findings stated as "Test." to find the format. They remain in the run as unvalidated observations. No earlier run did this; the error message could say where the source goes.
