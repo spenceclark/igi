@@ -10,7 +10,7 @@ import { cairnClient } from '../src/cairn.ts'
 import { cairnFake } from '../src/cairn-fake.ts'
 import { closeRenderer } from '../src/render.ts'
 import { importReview } from '../src/sources.ts'
-import { CONFIG, finding, resetDatabase, useTestDatabase } from './helpers.ts'
+import { CONFIG, finding, pdfText, resetDatabase, useTestDatabase } from './helpers.ts'
 
 const skip = await useTestDatabase('server')
 const db = await import('../src/db.ts')
@@ -21,7 +21,8 @@ after(async () => {
   await db.sql.end()
 })
 
-const DEV01 = fileURLToPath(new URL('../../fixtures/scenarios/dev-01', import.meta.url))
+// The realistic variant: workbooks, minutes and PDFs, as an operator uploads them (§7.1).
+const DEV01 = fileURLToPath(new URL('../../fixtures/scenarios/dev-01-docs', import.meta.url))
 type Op = { id: string; state: string; result: unknown; error: string | null }
 
 test('server: sign in, then a review from upload to a filed pack PDF; refusals along the way', { skip }, async () => {
@@ -68,14 +69,19 @@ test('server: sign in, then a review from upload to a filed pack PDF; refusals a
     for (const f of readdirSync(DEV01)) form.append('files', new Blob([readFileSync(join(DEV01, f))]), f)
     assert.equal((await api('POST', '/api/reviews/r1/sources', form)).status, 200)
     const overview = (await api('GET', '/api/reviews/r1')).json!
-    assert.equal((overview.sources as unknown[]).length, readdirSync(DEV01).length)
+    const summary = overview.sources as { source: string; format: string; validation_issues: string[] }[]
+    assert.equal(summary.length, 8, 'six files, two of them workbooks holding two sources each')
+    assert.deepEqual([...new Set(summary.map((s) => s.format))].sort(), ['docx', 'pdf', 'xlsx'])
+    assert.deepEqual(summary.flatMap((s) => s.validation_issues), [])
     assert.equal(overview.importError, null)
-    assert.equal(((await api('GET', '/api/reviews/r1/sources/positions/rows?limit=3')).json!.rows as unknown[]).length, 3)
+    const rows = (await api('GET', '/api/reviews/r1/sources/positions/rows?limit=3')).json! as { rows: unknown[]; provenance: Record<string, { location: string }> }
+    assert.equal(rows.rows.length, 3)
+    assert.equal(rows.provenance['positions:1'].location, 'sheet Holdings, row 5 (A5:G5)')
 
     // A seeded investigation over the uploaded sources, with one finding.
     const sources = importReview(await reviewDir('r1'), 'r1').sources.map(({ id, file, sha256 }) => ({ id, file, sha256 }))
     const at = '2026-10-28T09:00:00.000Z'
-    const state = { executions: [], checks: [{ id: 'C1', args: { check: 'lookthrough_exposure', portfolio_id: 'P-CAU', asset_class: 'equity' }, result: { exposure: '0.3697', comparisons: [] }, rowsUsed: ['positions:1'] }], notes: [], findings: [finding('F1', { material_numbers: [{ label: 'Equity exposure', value: '36.97%', check_id: 'C1' }] })] }
+    const state = { executions: [], checks: [{ id: 'C1', args: { check: 'lookthrough_exposure', portfolio_id: 'P-CAU', asset_class: 'equity' }, result: { exposure: '0.3697', comparisons: [] }, rowsUsed: ['positions:1'] }], notes: [], findings: [finding('F1', { material_numbers: [{ label: 'Equity exposure', value: '36.97%', check_id: 'C1' }], cited_rows: ['positions:1', 'committee_actions:2'] })] }
     await db.saveRun({ id: 'run-r1-1', reviewId: 'r1', startedAt: at, endedAt: at, status: 'completed', config: { ...CONFIG, sources }, turns: 1, toolCalls: 1, usage: {}, summary: '', events: [], state })
     assert.equal(((await api('GET', '/api/runs/run-r1-1')).json!.findings as unknown[]).length, 1)
 
@@ -87,6 +93,10 @@ test('server: sign in, then a review from upload to a filed pack PDF; refusals a
     const draft = await api('GET', '/api/findings/run-r1-1/F1/1/package')
     assert.equal(draft.res.headers.get('content-type'), 'application/pdf')
     assert.match(draft.res.headers.get('content-disposition')!, /PREVIEW-IGI-r1-/)
+    // The package names where each cited row is in the uploaded files (§15.8).
+    const located = await pdfText(new Uint8Array(await draft.res.arrayBuffer()))
+    assert.match(located, /positions:1\s+\(valuation-report\.xlsx,\s+sheet\s+Holdings,\s+row\s+5\s+\(A5:G5\)\)/)
+    assert.match(located, /committee_actions:2\s+\(committee-minutes-2026-07-15\.docx,\s+table\s+1,\s+row\s+3\)/)
     await operation('POST', '/api/reviews/r1/submit', { findings: [{ runId: 'run-r1-1', id: 'F1', version: 1 }] })
     assert.equal((await api('GET', '/api/findings/run-r1-1/F1/1/assertion')).json!.sent, true)
     for (const c of fake.candidates) fake.file(c.candidateId)

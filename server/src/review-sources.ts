@@ -8,8 +8,10 @@ import { join } from 'node:path'
 import { sql } from './db.ts'
 import { filePath, getFile, putFile } from './files.ts'
 
-// File names IGI accepts, by extension, and the largest upload. Other formats arrive with their importers (§7.5).
-const FILE_NAME = /^[\w][\w .()-]{0,120}\.(csv|md)$/i
+// File names IGI accepts, by extension (§7.5), and the largest upload. Legacy and macro-enabled Office files are
+// refused by name with a reason; a file of an accepted type that isn't in a documented layout is reported on import.
+const FILE_NAME = /^[\w][\w .()-]{0,120}\.(csv|md|xlsx|docx|pdf)$/i
+const LEGACY = /\.(xls|xlsm|xlsb|doc|docm)$/i
 export const MAX_SOURCE_BYTES = 10 * 1024 * 1024
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 
@@ -22,7 +24,8 @@ export type CurrentSource = { file: string; sha256: string; uploaded_at: Date }
  * bytes again makes that version current again.
  */
 export async function uploadSource(reviewId: string, file: string, bytes: Uint8Array): Promise<CurrentSource> {
-  if (!FILE_NAME.test(file)) throw new Error(`"${file}" is not an accepted source file: CSV or Markdown, with a plain file name`)
+  if (LEGACY.test(file)) throw new Error(`${file}: legacy and macro-enabled Office files are not supported; save it as .xlsx or .docx`)
+  if (!FILE_NAME.test(file)) throw new Error(`"${file}" is not an accepted source file: CSV, XLSX, DOCX, a text-based PDF or the Markdown policy document, with a plain file name`)
   if (!bytes.length) throw new Error(`${file} is empty`)
   if (bytes.length > MAX_SOURCE_BYTES) throw new Error(`${file} is over ${MAX_SOURCE_BYTES / 1024 / 1024} MB`)
   const sha = sha256(bytes)

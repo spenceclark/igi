@@ -1,0 +1,4 @@
+# Source documents and generated files are bytes, never text: no line-ending conversion on checkout.
+*.pdf binary
+*.xlsx binary
+*.docx binary

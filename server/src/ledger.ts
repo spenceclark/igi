@@ -8,6 +8,8 @@ import { igiBuild } from './build.ts'
 import { composeAssertion, findingPayload, packageHtml, sourceReference } from './package.ts'
 import { renderPdf } from './render.ts'
 import { isCurrent } from './evidence.ts'
+import { assemble } from './review-sources.ts'
+import { importReview } from './sources.ts'
 
 // The two items submitted for every finding version: its assertion and its investigation package file.
 // (The committee pack's own submission is recorded on the pack: see submitPack in committee-pack.ts.)
@@ -104,6 +106,19 @@ function readStored(s: StoredFile) {
 }
 
 /**
+ * Where each row of a run's sources is in its file, named with the file (fees.csv, line 3), from the sources the run
+ * analysed as IGI retains them (§7.5). Empty when they can't be read back; the package then lists row ids alone.
+ */
+export function rowLocations(reviewId: string, sources: { file: string; sha256: string }[]): Record<string, string> {
+  try {
+    const review = importReview(assemble(reviewId, sources), reviewId)
+    return Object.fromEntries(review.sources.flatMap((s) => Object.entries(s.provenance ?? {}).map(([id, p]) => [id, `${s.file}, ${p.location}`])))
+  } catch {
+    return {}
+  }
+}
+
+/**
  * What a finding version is submitted as (spec §6.5, §12.3): its assertion text and its package file. At the first
  * submission the presentation payload is frozen from the run's records, and the assertion and the package PDF are
  * rendered from it; all three are stored with their hashes and the package's render record. Every resend reads them
@@ -112,7 +127,7 @@ function readStored(s: StoredFile) {
  */
 async function prepareFinding(f: FindingRow, reviewId: string, run: NonNullable<Awaited<ReturnType<typeof loadRun>>>) {
   if (f.artifacts) return { text: new TextDecoder().decode(readStored(f.artifacts.assertion)), bytes: readStored(f.artifacts.package), file: f.artifacts.package }
-  const payload = findingPayload(f, run.run, reviewId, run.executions, run.checks, run.findings)
+  const payload = findingPayload(f, run.run, reviewId, run.executions, run.checks, run.findings, rowLocations(reviewId, run.run.config.sources))
   const text = composeAssertion(payload)
   const base = `findings/${f.run_id}/${f.id}-v${f.version}`
   const store = (suffix: string, bytes: Uint8Array): StoredFile => {

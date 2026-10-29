@@ -1,0 +1,119 @@
+{
+  "scenario": "dev-02-docs",
+  "seed": 202,
+  "instrumentIds": {
+    "ZZ4Y7HDAHD91": "Northgate UK Equity Index",
+    "ZZ7OMO9I4XC1": "Harrow Global Equity",
+    "ZZR3HGP3VTN8": "Mardale Emerging Markets Equity",
+    "ZZ5KAY4ADYT6": "Calder Sterling Corporate Bond",
+    "ZZSI82OJXW58": "Ashby Gilt Index",
+    "ZZ1XLDKXZRL3": "Ouse Short-Dated Bond",
+    "ZZETFUFVMTR6": "Wensley Multi-Asset Income",
+    "ZZVQO3ILWHZ2": "Fenwick Strategic Multi-Asset",
+    "ZZQYR9P18754": "Tarn Property Securities",
+    "ZZNX6MCF17L6": "Brackley Absolute Return",
+    "ZZDQCI9KAGN3": "Kentmere Global Equity Income",
+    "ZZ1VGPG12K31": "Sterling Cash"
+  },
+  "expectedBreaches": [
+    "P-BAL|2026-09-30|BAL-EQ-MAX",
+    "P-GRO|2026-09-30|GRO-SH"
+  ],
+  "facts": {
+    "P-CAU|2026-06-30|equity_exposure": "0.2296",
+    "P-CAU|2026-06-30|cash_exposure": "0.0756",
+    "P-CAU|2026-06-30|single_holding_weight": "0.2311",
+    "P-CAU|2026-06-30|relative_return_deviation": "0.0010",
+    "P-CAU|2026-09-30|equity_exposure": "0.2439",
+    "P-CAU|2026-09-30|cash_exposure": "0.0708",
+    "P-CAU|2026-09-30|single_holding_weight": "0.2162",
+    "P-CAU|2026-09-30|relative_return_deviation": "0.0020",
+    "P-BAL|2026-06-30|equity_exposure": "0.6219",
+    "P-BAL|2026-06-30|cash_exposure": "0.0668",
+    "P-BAL|2026-06-30|single_holding_weight": "0.1800",
+    "P-BAL|2026-06-30|relative_return_deviation": "0.0020",
+    "P-BAL|2026-09-30|equity_exposure": "0.6865",
+    "P-BAL|2026-09-30|cash_exposure": "0.0595",
+    "P-BAL|2026-09-30|single_holding_weight": "0.1900",
+    "P-BAL|2026-09-30|relative_return_deviation": "0.0040",
+    "P-GRO|2026-06-30|equity_exposure": "0.7410",
+    "P-GRO|2026-06-30|cash_exposure": "0.0837",
+    "P-GRO|2026-06-30|single_holding_weight": "0.2700",
+    "P-GRO|2026-06-30|relative_return_deviation": "0.0030",
+    "P-GRO|2026-09-30|equity_exposure": "0.7410",
+    "P-GRO|2026-09-30|cash_exposure": "0.0837",
+    "P-GRO|2026-09-30|single_holding_weight": "0.2750",
+    "P-GRO|2026-09-30|relative_return_deviation": "0.0030"
+  },
+  "issues": [
+    {
+      "id": "I1",
+      "type": "lookthrough_equity_breach",
+      "portfolio": "P-BAL",
+      "period": "2026-09-30",
+      "rule": "BAL-EQ-MAX v1",
+      "expected": [
+        "potential_exception"
+      ],
+      "summary": "Look-through equity exposure exceeds the 65% maximum although funds classified as equity are 56%; the multi-asset funds carry the rest."
+    },
+    {
+      "id": "I2",
+      "type": "limit_breach_after_policy_change",
+      "portfolio": "P-GRO",
+      "period": "2026-09-30",
+      "rule": "GRO-SH v2",
+      "expected": [
+        "potential_exception"
+      ],
+      "summary": "Largest holding (Harrow Global Equity) exceeds the 25% single-holding limit in force from 1 July 2026; it was within the previous 30% limit."
+    },
+    {
+      "id": "I3",
+      "type": "overdue_committee_action",
+      "portfolio": "P-GRO",
+      "period": "2026-09-30",
+      "expected": [
+        "outstanding_action",
+        "potential_exception",
+        "observation"
+      ],
+      "summary": "Action to reduce Mardale Emerging Markets Equity in Growth to no more than 10% was due 30 September 2026 and is still open; the holding is 13%."
+    },
+    {
+      "id": "I4",
+      "type": "policy_document_table_disagreement",
+      "portfolio": "P-CAU",
+      "expected": [
+        "policy_inconsistency"
+      ],
+      "summary": "The policy document sets the Cautious cash limit at 8%; the structured rules table says 10%."
+    }
+  ],
+  "benign": [
+    {
+      "id": "B1",
+      "type": "market_driven_fall",
+      "portfolio": "P-BAL",
+      "period": "2026-09-30",
+      "must_not_be": [
+        "potential_exception"
+      ],
+      "summary": "Balanced returned -6.2% in Q3, below the -5% notification level, but its benchmark returned -5.8%: within the 1.5pp tolerance and market-driven. Notify the Committee; not a breach."
+    }
+  ],
+  "distractors": [
+    {
+      "id": "D1",
+      "summary": "Brackley Absolute Return replacement in Cautious is complete; the fund is no longer held."
+    },
+    {
+      "id": "D2",
+      "summary": "Fee review action is not yet due."
+    },
+    {
+      "id": "D3",
+      "summary": "Tarn Property Securities ongoing charge rose from 0.40% to 0.42%; no policy limit applies."
+    }
+  ]
+}

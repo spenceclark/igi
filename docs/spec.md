@@ -515,7 +515,7 @@ Keep this scenario out of the primary Gate B evaluation. It tests clarification 
 
 ### 7.5 Import formats and source-location provenance [MVP]
 
-The importer supports documented, bounded layouts for the demo sources, not arbitrary financial documents. Preserve original bytes and SHA-256, media type, filename, reporting period, import/extraction version, original values and any normalization or operator correction. Every normalized row has a stable row id and a link back to its immutable source version. Field-level locations are retained where a row draws on multiple places.
+The importer supports documented, bounded layouts for the demo sources, not arbitrary financial documents. The layouts are defined in `server/src/formats.ts`: each worksheet's or table's header labels, the minutes' meeting-date paragraph, the fee schedule's period columns and the policy document's numbered sections. Preserve original bytes and SHA-256, media type, filename, reporting period, import/extraction version, original values and any normalization or operator correction. Every normalized row has a stable row id and a link back to its immutable source version. Field-level locations are retained where a row draws on multiple places.
 
 | Format | Supported input and location reference |
 |---|---|
@@ -1446,6 +1446,7 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 - A whole-population statement needs coverage of the kind it states, over the population it names (§6.4).
 - Missing look-through data makes an exposure unknown; no exposure, comparison or fact is derived from the rest (§9.6).
 - The review's own period end governs the import (§6.2). Any budget refusal ends a run `budget_exhausted` (§8.4).
+- §7.5 names where the documented layouts are defined.
 - An earlier run's finding shows its own run's committee actions and rule versions (§13.2). New sources or a later run make existing packs stale; opening a pack reads Cairn afresh, and a pack that is not current opens only as a historical copy (§13.3).
 
 **v0.13, 28 October 2026**

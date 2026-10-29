@@ -82,6 +82,7 @@ test('sources: each upload is an immutable version; the review reads the current
   assert.equal((await db.sql`select 1 from review_source where file = 'fees.csv'`).length, 2)
   // Names that could reach outside the folder, other formats and empty files are refused.
   for (const bad of ['../fees.csv', 'a/b.csv', 'fees.exe', '.hidden.csv']) await assert.rejects(sources.uploadSource('r1', bad, new Uint8Array(1)), /not an accepted source file/)
+  for (const legacy of ['fees.xls', 'minutes.doc', 'valuations.xlsm']) await assert.rejects(sources.uploadSource('r1', legacy, new Uint8Array(1)), /legacy and macro-enabled Office files are not supported/)
   await assert.rejects(sources.uploadSource('r1', 'empty.csv', new Uint8Array()), /is empty/)
 
   // A review for a period the sources don't reach is refused before any model call.
