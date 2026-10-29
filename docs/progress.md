@@ -643,3 +643,9 @@ This supersedes the asset-class behaviour in the previous entry. An asset class 
 
 - A claim with a source field (`fact`, `rule`, `version`, `quote`, `row`, `section`, `derived`, `of` or `relation`) written beside its other fields instead of inside `source` was told only "give exactly one source". The error now names the field and shows where it goes. `tools_sha` is unchanged: the message is a validation result, not part of the tool descriptions.
 - Tests: a case in `test/validation.test.ts`. `npm test` 69 pass, type check clean, leak scan clean. No live run yet to show whether it removes the probing findings.
+
+**Second live run on the fail-closed tools** (dev-01, `run-eval-dev-01-20261029T2211-1-20261029T221105`, commit 56bceb4)
+
+- Score: 3/3 issues found, benign anomaly explained, no false positives, 4/4 material findings validated, claimed facts equal to the generator's 4/4, checks 21/21 and Python 2/2 re-run the same. `completed_with_uncertainties` with two open questions. $0.372, 27 turns, 46 tool calls.
+- The misplaced-source error did not fire: every claim had its fact inside `source`, with a redundant copy beside it in 12 findings (harmless, as in the run before last). The three claims with no source in the previous run were the only ones in recent runs, so the new message has not yet met live output.
+- Four revisions, each after a specific refusal: an exposure claim without its asset class, an action threshold quoted without its row, a figure in the text with no claim, and a validated fee finding reworded. No probing findings.
