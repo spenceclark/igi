@@ -8,15 +8,15 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { extname, join, normalize, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import type { Cairn, RecordSteps } from './cairn.ts'
-import { excludedItems, listPacks, packBlockers, reconcileAdvice, resolveFindings, type PackRow } from './committee-pack.ts'
+import { excludedItems, listPacks, markStalePacks, packBlockers, reconcileAdvice, resolveFindings, type PackRow } from './committee-pack.ts'
 import { loadRun, sql, type FindingRow, type RunRow } from './db.ts'
 import { getFile } from './files.ts'
 import { abandonEntry, ledgerEntries, newVersion, withdrawFinding } from './ledger.ts'
 import { AlreadyRunning, listOperations, type Operation } from './operations.ts'
 import { composeAssertion, findingPayload, packageHtml, runTag } from './package.ts'
 import { renderPdf } from './render.ts'
-import { currentSources, reviewDir, uploadSource } from './review-sources.ts'
-import { createReview, generateReviewPack, investigateReview, openReviewRecord, refreshReview, submitReviewFindings, submitReviewPack } from './reviews.ts'
+import { currentSources, reviewDir, reviewPeriod, uploadSource } from './review-sources.ts'
+import { createReview, generateReviewPack, investigateReview, openReviewRecord, readCairn, refreshReview, submitReviewFindings, submitReviewPack } from './reviews.ts'
 import { importReview, readData, sourceSummary, type ReadArgs } from './sources.ts'
 
 // What the server needs: the Cairn client, the operator's password, a secret for signing sessions, and where the
@@ -81,13 +81,14 @@ export function igiServer(o: ServerOptions) {
   }
   const started = (r: { op: Operation }) => ({ operation: r.op })
   const pdf = (bytes: Uint8Array, name: string): Reply => ({ type: 'application/pdf', body: bytes, headers: { 'Content-Disposition': `inline; filename="${name}"` } })
-  const packFile = (p: PackRow, kind: 'pdf' | 'html'): Reply => {
+  // A pack's PDF or HTML preview, labelled with its state and when IGI last verified the review against Cairn.
+  const packFile = (p: PackRow, kind: 'pdf' | 'html', state: string, verifiedAt: Date | null): Reply => {
     const key = kind === 'pdf' ? p.pdf_key : p.file_key
     if (!key) throw new HttpError(404, `pack v${p.version} has no ${kind.toUpperCase()}`)
-    const state = p.stale_reason ? 'stale' : 'current'
+    const labels = { 'X-IGI-Pack-State': state, 'X-IGI-Verified-At': verifiedAt?.toISOString() ?? 'never' }
     return kind === 'pdf'
-      ? { ...pdf(getFile(key), `IGI-${p.review_id}-committee-pack-v${p.version}.pdf`), headers: { 'X-IGI-Pack-State': state, 'Content-Disposition': `inline; filename="IGI-${p.review_id}-committee-pack-v${p.version}.pdf"` } }
-      : { type: 'text/html; charset=utf-8', body: getFile(key), headers: { 'Content-Security-Policy': PREVIEW_CSP, 'X-IGI-Pack-State': state } }
+      ? { ...pdf(getFile(key), `IGI-${p.review_id}-committee-pack-v${p.version}.pdf`), headers: { ...labels, 'Content-Disposition': `inline; filename="IGI-${p.review_id}-committee-pack-v${p.version}.pdf"` } }
+      : { type: 'text/html; charset=utf-8', body: getFile(key), headers: { ...labels, 'Content-Security-Policy': PREVIEW_CSP } }
   }
 
   // ---- Routes: [method, path pattern, handler]; captured groups become params ----
@@ -110,7 +111,7 @@ export function igiServer(o: ServerOptions) {
       let sources: ReturnType<typeof sourceSummary> = []
       let importError: string | null = null
       try {
-        sources = sourceSummary(importReview(await reviewDir(r.id), r.id))
+        sources = sourceSummary(importReview(await reviewDir(r.id), r.id, await reviewPeriod(r.id)))
       } catch (e) {
         importError = (e as Error).message
       }
@@ -139,7 +140,7 @@ export function igiServer(o: ServerOptions) {
       return { uploaded: stored }
     }],
     ['GET', /^\/api\/reviews\/([\w-]+)\/sources\/([\w-]+)\/rows$/, async (c) => {
-      const review = importReview(await reviewDir(c.params[0]), c.params[0])
+      const review = importReview(await reviewDir(c.params[0]), c.params[0], await reviewPeriod(c.params[0]))
       return readData(review, { source: c.params[1], limit: Number(c.url.searchParams.get('limit') ?? 50) } as ReadArgs)
     }],
 
@@ -210,6 +211,8 @@ export function igiServer(o: ServerOptions) {
       let blockers: unknown[] = []
       let blockError: string | null = null
       try {
+        // Packs the review has moved on from (new sources, a later run) show as stale without waiting for a Cairn read.
+        await markStalePacks(c.params[0])
         blockers = await packBlockers(c.params[0])
       } catch (e) {
         blockError = (e as Error).message
@@ -219,10 +222,26 @@ export function igiServer(o: ServerOptions) {
     }],
     ['POST', /^\/api\/reviews\/([\w-]+)\/packs$/, async (c) => started(await generateReviewPack(o.cairn, c.params[0]))],
     ['POST', /^\/api\/reviews\/([\w-]+)\/packs\/submit$/, async (c) => started(await submitReviewPack(o.cairn, c.params[0], (await c.body()).resend === true))],
+    // Opening a pack re-checks it first (§13.3): a fresh read of Cairn, which may mark it stale. Only the latest pack,
+    // verified just now and not stale, is served as current; any other is served only when asked for explicitly as
+    // a historical copy (?historical=1), labelled with its state and when the review was last verified.
     ['GET', /^\/api\/reviews\/([\w-]+)\/packs\/(\d+)\.(pdf|html)$/, async (c) => {
-      const [p] = await sql<PackRow[]>`select * from committee_pack where review_id = ${c.params[0]} and version = ${Number(c.params[1])}`
+      await reviewRow(c.params[0])
+      let readError: string | null = null
+      try {
+        await readCairn(o.cairn, c.params[0])
+      } catch (e) {
+        readError = (e as Error).message
+      }
+      const p = (await listPacks(c.params[0])).find((x) => x.version === Number(c.params[1]))
       if (!p) throw new HttpError(404, `no pack v${c.params[1]}`)
-      return packFile(p, c.params[2] as 'pdf' | 'html')
+      const { status_checked_at: verifiedAt } = await reviewRow(c.params[0])
+      const state = p.stale_reason ? 'stale' : p.superseded ? 'superseded' : readError ? 'unverified' : 'current'
+      if (state !== 'current' && c.url.searchParams.get('historical') !== '1') {
+        const why = state === 'stale' ? `is stale: ${p.stale_reason}` : state === 'superseded' ? 'is superseded by a later pack' : `could not be verified against Cairn just now (${readError}); last verified ${verifiedAt?.toISOString() ?? 'never'}`
+        throw new HttpError(409, `pack v${p.version} ${why}. Open it from the Pack tab as a historical copy.`)
+      }
+      return packFile(p, c.params[2] as 'pdf' | 'html', state, verifiedAt)
     }],
     ['GET', /^\/api\/operations\/([\w-]+)$/, async (c) => {
       const [op] = await sql<Operation[]>`select * from operation where id = ${c.params[0]}`

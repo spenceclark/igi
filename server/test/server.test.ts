@@ -107,6 +107,17 @@ test('server: sign in, then a review from upload to a filed pack PDF; refusals a
     await operation('POST', '/api/reviews/r1/packs/submit', {})
     assert.equal(fake.candidates.at(-1)!.filename, 'IGI-r1-committee-pack-v1.pdf')
 
+    // Opening a pack reads Cairn first. Once an included item is voided there the pack is stale, so it opens only
+    // as an explicit historical copy, labelled so.
+    fake.voidEvidence(fake.candidates[0].candidateId)
+    const refused = await api('GET', '/api/reviews/r1/packs/1.pdf')
+    assert.equal(refused.status, 409)
+    assert.match(String(refused.json!.error), /^pack v1 is stale: F1 v1 assertion voided/)
+    const historical = await api('GET', '/api/reviews/r1/packs/1.pdf?historical=1')
+    assert.equal(historical.status, 200)
+    assert.equal(historical.res.headers.get('x-igi-pack-state'), 'stale')
+    assert.ok(historical.res.headers.get('x-igi-verified-at'), 'it says when the review was last verified against Cairn')
+
     // A form-encoded POST (what a cross-site form sends) is refused; so is an unknown route and a missing UI.
     const plain = await fetch(`${base}/api/reviews/r1/refresh`, { method: 'POST', headers: { cookie, 'Content-Type': 'text/plain' }, body: 'x=1' })
     assert.equal(plain.status, 415)

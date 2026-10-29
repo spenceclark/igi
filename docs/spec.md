@@ -297,7 +297,7 @@ The operator uploads the review's source files. Each file is:
 - validated structurally (§7.3);
 - recorded with reporting dates, units, extraction/mapping versions and original-file locations (§7.5).
 
-Missing or invalid data is reported, never silently repaired. Import issues distinguish unreadable or structurally invalid inputs from unresolved interpretation of readable data. An unresolved mapping blocks calculations and conclusions that depend on it; other valid review areas may proceed. The MVP operator can resolve an import mapping before starting the affected analysis, with the answer and source version recorded. The memory stretch also allows Spark to discover an ambiguity, ask a focused question and continue unrelated work (§6.9, §8.8). Neither route guesses a mapping or silently drops affected holdings.
+The sources are read for the review's own period end, never the latest date found in them: positions dated after it are reported, and a review whose sources hold no positions at it cannot be investigated. Missing or invalid data is reported, never silently repaired. Import issues distinguish unreadable or structurally invalid inputs from unresolved interpretation of readable data. An unresolved mapping blocks calculations and conclusions that depend on it; other valid review areas may proceed. The MVP operator can resolve an import mapping before starting the affected analysis, with the answer and source version recorded. The memory stretch also allows Spark to discover an ambiguity, ask a focused question and continue unrelated work (§6.9, §8.8). Neither route guesses a mapping or silently drops affected holdings.
 
 ### 6.3 Investigate [New IGI]
 
@@ -333,7 +333,7 @@ Spark calls `propose_finding` with a structured finding (§8.2). The backend che
 
 The value must equal the evidence in the same unit, at the precision stated, so a percentage never passes for a pp difference.
 
-**Text.** Every %, pp, bps or £ figure in the statement and explanation must equal a verified claim. So must every bare decimal with two or more places that is not a clause, section or version reference; a bare number with one place reads as a reference. Dates, identifiers and plain counts are left out. Wording about a whole population ("all portfolios", "every holding", "no other fund", "full coverage") needs a verified **coverage claim**. Coverage claims are checked against the population computed from the sources:
+**Text.** Every %, pp, bps or £ figure in the statement and explanation must equal a verified claim. So must every bare decimal with two or more places that is not a clause, section or version reference; a bare number with one place reads as a reference. Dates, identifiers and plain counts are left out. Wording about a whole population ("all portfolios", "every holding", "no other fund", "full coverage") needs a verified **coverage claim** of the kind its sentence states (limits met, charges unchanged, look-through complete, weights reconciled), over the population it names: every portfolio in the review for wording about portfolios, otherwise the finding's portfolios. A sentence that can't be tied to a kind stays unsupported. Coverage claims are checked against the population computed from the sources:
 
 - every holding's weights reconcile, which shows internal consistency only;
 - every holding has look-through data, which shows completeness;
@@ -584,7 +584,7 @@ Spark cannot change investment data or anything in Cairn.
 
 Each run has configured limits on model tokens and estimated cost, wall-clock time, tool calls, Python executions, and rows and bytes returned by data tools.
 
-A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion. An open question does not end a run: Spark records it and carries on, and the run ends `completed_with_uncertainties` with its open questions listed. A run also ends `completed_with_uncertainties` when a potential exception it proposed was stored as an observation because its figures were not validated; an observation with no figures to validate is not an uncertainty. `blocked` means nothing else in the review could proceed. In the memory stretch, an operator's answer starts a new run with context rebuilt from IGI's records and a reference to the earlier run, never a resumed Meta Responses conversation (§8.8).
+A run ends as `completed`, `completed_with_uncertainties`, `blocked`, `failed` or `budget_exhausted`. Budget exhaustion is never reported as completion: a run in which any budget refused a tool call ends `budget_exhausted`, even if Spark then writes its summary. An open question does not end a run: Spark records it and carries on, and the run ends `completed_with_uncertainties` with its open questions listed. A run also ends `completed_with_uncertainties` when a potential exception it proposed was stored as an observation because its figures were not validated; an observation with no figures to validate is not an uncertainty. `blocked` means nothing else in the review could proceed. In the memory stretch, an operator's answer starts a new run with context rebuilt from IGI's records and a reference to the earlier run, never a resumed Meta Responses conversation (§8.8).
 
 ### 8.5 Investigation trace
 
@@ -704,7 +704,7 @@ Model-written code is treated as untrusted. Monty's isolation is language-level 
 - Every material figure in a finding is a claim bound to typed evidence (a check's fact, a structured rule, a quoted source text or a calculation on other claims) for its measure, scope and unit, and checked at the precision stated (§6.4). Without that, a potential exception stays an unvalidated observation.
 - Generated Python reads its values with `read_data`; a run whose code contains typed-in decimal figures gets a warning back.
 - Methodology is preserved with each result.
-- Missing or incompatible inputs are flagged.
+- Missing or incompatible inputs are flagged and block the figures that depend on them. A portfolio's look-through exposure with any holding's look-through data missing is unknown: the check gives no exposure and compares no rule, rather than summing the rest.
 
 A calculation can execute correctly and still apply the wrong policy or methodology. Successful execution does not establish that the method or its assumptions are right, so methodology remains visible for review.
 
@@ -1040,7 +1040,7 @@ Built from a status read-back made immediately before generation. It records:
 - execution and check references;
 - the content the pack shows for each finding: statement, explanation, figures with how IGI checked each and what it applies to, whole-population statements with their coverage, policy comparisons, uncertainties and the finding it revised, all contained in its accepted assertion and package;
 - the portfolio figures, policy rules in force and open committee actions the pack shows, computed from the hashed sources at generation, and the file store key of each retained source (§10.3);
-- for each outstanding-action finding, the committee actions it cites, as the action log records them;
+- for each outstanding-action finding, the committee actions it cites, as the action log its analysis run read records them, and for each finding the rule versions it names as that run read them, so a finding from an earlier run shows what its accepted package rests on;
 - the matters the latest run left unresolved: its open questions and blockers, and any potential exception it stored as an observation;
 - every submitted item of a withdrawn or rejected version, with its evidence reference and state, without content (§6.7);
 - the record's step and slot names;
@@ -1051,7 +1051,7 @@ Only publication-ready findings enter the reviewed snapshot (§6.7, §12.5). Whi
 
 ### 13.3 Stale and superseded packs
 
-IGI re-checks **both constituent evidence items for every included finding** whenever it polls and when the pack is opened. If either is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. Withdrawing a finding the pack includes also marks it stale, and so does any item of a withdrawn or rejected version becoming, or remaining, filed and active on the record (§6.7). A stale pack is never rewritten. A newly generated pack supersedes it, and both remain in the pack history. The same stale/superseded status applies to every PDF or slide artifact derived from that snapshot. New source versions, corrected/revoked mappings affecting the review, or a newer governing analysis run require reassessment before the previous outputs are offered as current. Preserve historical bytes and their as-of provenance; show why reassessment is needed. Re-check before offering an artifact as current final output; if the check fails, show its last-verified time and an unavailable/unverified state. An explicit historical download may remain available with a clear warning. Files already downloaded or filed in Cairn cannot be remotely changed or withdrawn by IGI.
+IGI re-checks **both constituent evidence items for every included finding** whenever it polls and when the pack is opened. If either is no longer filed and active, or becomes unverifiable, the pack is marked **stale**, with the reason. Withdrawing a finding the pack includes also marks it stale, and so does any item of a withdrawn or rejected version becoming, or remaining, filed and active on the record (§6.7). A stale pack is never rewritten. A newly generated pack supersedes it, and both remain in the pack history. The same stale/superseded status applies to every PDF or slide artifact derived from that snapshot. New source versions, corrected/revoked mappings affecting the review, or a newer governing analysis run require reassessment before the previous outputs are offered as current: they mark existing packs stale, so a stale pack cannot be submitted. Preserve historical bytes and their as-of provenance; show why reassessment is needed. Re-check before offering an artifact as current final output: opening a pack reads Cairn afresh. If the check fails, show its last-verified time and an unavailable/unverified state. An explicit historical download may remain available with a clear warning; a pack that is stale, superseded or unverified opens only that way. Files already downloaded or filed in Cairn cannot be remotely changed or withdrawn by IGI.
 
 ### 13.4 Pack content
 
@@ -1440,6 +1440,13 @@ Cairn's documentation is private. §12 summarises the parts of its contract IGI 
 ---
 
 ## Revision Log
+
+**v0.13 clarifications, 29 October 2026** (from the specification audit in the progress log)
+
+- A whole-population statement needs coverage of the kind it states, over the population it names (§6.4).
+- Missing look-through data makes an exposure unknown; no exposure, comparison or fact is derived from the rest (§9.6).
+- The review's own period end governs the import (§6.2). Any budget refusal ends a run `budget_exhausted` (§8.4).
+- An earlier run's finding shows its own run's committee actions and rule versions (§13.2). New sources or a later run make existing packs stale; opening a pack reads Cairn afresh, and a pack that is not current opens only as a historical copy (§13.3).
 
 **v0.13, 28 October 2026**
 

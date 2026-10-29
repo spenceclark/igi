@@ -142,6 +142,7 @@ export const api = {
   packs: (id: string) => call<PacksResponse>('GET', `/api/reviews/${id}/packs`),
   generatePack: (id: string) => start(`/api/reviews/${id}/packs`),
   submitPack: (id: string, resend = false) => start(`/api/reviews/${id}/packs/submit`, { resend }),
-  packUrl: (id: string, version: number, kind: 'pdf' | 'html') => `/api/reviews/${id}/packs/${version}.${kind}`,
+  // A pack that isn't current opens only as an explicit historical copy; the server checks Cairn before either.
+  packUrl: (id: string, version: number, kind: 'pdf' | 'html', historical = false) => `/api/reviews/${id}/packs/${version}.${kind}${historical ? '?historical=1' : ''}`,
   operation: (opId: string) => call<Operation>('GET', `/api/operations/${opId}`),
 }

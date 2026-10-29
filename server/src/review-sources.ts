@@ -2,11 +2,11 @@
 // under sources/<sha256>/<file>; the review's current sources are the latest upload of each file name. The importer
 // reads a folder, so the current set is copied into a temporary folder named after it, rebuilt whenever it's missing.
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sql } from './db.ts'
-import { getFile, putFile } from './files.ts'
+import { filePath, getFile, putFile } from './files.ts'
 
 // File names IGI accepts, by extension, and the largest upload. Other formats arrive with their importers (§7.5).
 const FILE_NAME = /^[\w][\w .()-]{0,120}\.(csv|md)$/i
@@ -37,10 +37,17 @@ export async function uploadSource(reviewId: string, file: string, bytes: Uint8A
 export const currentSources = (reviewId: string) =>
   sql<CurrentSource[]>`select distinct on (file) file, sha256, uploaded_at from review_source where review_id = ${reviewId} order by file, uploaded_at desc`
 
+/** The review's period end as an ISO date (§6.1), which the importer analyses the sources for. */
+export async function reviewPeriod(reviewId: string): Promise<string> {
+  const [r] = await sql<{ period_end: string }[]>`select period_end::text from review where id = ${reviewId}`
+  if (!r) throw new Error(`no review ${reviewId}`)
+  return r.period_end
+}
+
 /**
  * The folder the importer reads for the review. With uploaded sources it is a temporary folder holding exactly the
- * current versions, named by their hashes and written to a sibling folder then renamed, so a reader never sees it
- * half-written. A review made on the command line from a scenario folder has no uploads and uses that folder.
+ * current versions (assemble). A review made on the command line from a scenario folder has no uploads and uses
+ * that folder.
  */
 export async function reviewDir(reviewId: string): Promise<string> {
   const files = await currentSources(reviewId)
@@ -49,12 +56,33 @@ export async function reviewDir(reviewId: string): Promise<string> {
     if (!r?.source_dir) throw new Error(`review ${reviewId} has no sources; upload them first`)
     return r.source_dir
   }
+  return assemble(reviewId, files)
+}
+
+/** The review's current source files and their hashes: the uploads in use, or the files in its command-line folder. */
+export async function sourceSet(reviewId: string): Promise<{ file: string; sha256: string }[]> {
+  const files = await currentSources(reviewId)
+  if (files.length) return files.map(({ file, sha256 }) => ({ file, sha256 }))
+  const dir = await reviewDir(reviewId)
+  return readdirSync(dir).sort().map((file) => ({ file, sha256: sha256(readFileSync(join(dir, file))) }))
+}
+
+/**
+ * A folder holding exactly the given source versions from the file store, for the importer: a review's current
+ * uploads, or the sources an earlier analysis run recorded. Named by their hashes and written to a sibling folder
+ * then renamed, so a reader never sees it half-written. Throws if a version isn't retained.
+ */
+export function assemble(reviewId: string, files: { file: string; sha256: string }[]): string {
   const dir = join(tmpdir(), 'igi-reviews', reviewId, sha256(files.map((f) => `${f.file} ${f.sha256}`).join('\n')).slice(0, 16))
   if (existsSync(dir)) return dir
   const partial = `${dir}.${process.pid}.partial`
   rmSync(partial, { recursive: true, force: true })
   mkdirSync(partial, { recursive: true })
-  for (const f of files) writeFileSync(join(partial, f.file), getFile(`sources/${f.sha256}/${f.file}`))
+  for (const f of files) {
+    const key = `sources/${f.sha256}/${f.file}`
+    if (!existsSync(filePath(key))) throw new Error(`${f.file} (SHA-256 ${f.sha256.slice(0, 12)}) is not retained in IGI's file store`)
+    writeFileSync(join(partial, f.file), getFile(key))
+  }
   try {
     renameSync(partial, dir)
   } catch (e) {

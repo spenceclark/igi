@@ -10,9 +10,9 @@ export type Comparison = { rule_id: string; version: string; limit_type: string;
 // The checks run_check offers: each one's arguments and what it returns. The agent reads these texts.
 export const CHECK_CATALOGUE: Record<string, string> = {
   weight_reconciliation: 'portfolio_id, period_end: total market value, each holding\'s computed weight against its reported weight, and the sum of reported weights.',
-  lookthrough_exposure: 'portfolio_id, period_end, asset_class: look-through exposure to the asset class, each holding\'s contribution, coverage, and comparison with the applicable rules for that exposure.',
+  lookthrough_exposure: 'portfolio_id, period_end, asset_class: look-through exposure to the asset class, each holding\'s contribution, coverage, and comparison with the applicable rules for that exposure. If any holding has no look-through data the exposure is unknown, so none is given and no rule is compared.',
   holding_concentration: 'portfolio_id, period_end: holdings by computed weight, the largest, and comparison with the single-holding rule in force at the period end.',
-  relative_performance: 'portfolio_id, period_end: portfolio and benchmark return for the quarter, their difference, and comparison with the applicable tolerance rule.',
+  relative_performance: 'portfolio_id, period_end: portfolio and benchmark return for the period ending period_end, their difference, and comparison with the applicable tolerance rule.',
   fee_change: 'portfolio_id, from_period, to_period: ongoing charge of each fund held at to_period, at both periods, and the change.',
 }
 
@@ -63,27 +63,37 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
       }
     }
     // Exposure to an asset class: the sum over holdings of weight times the fund's exposure to that class at the
-    // same date. A fund without look-through data at that date contributes nothing and is listed as missing.
-    // The rules compared are those for the metric `<asset class>_exposure`.
+    // same date (a fund with look-through data but no row for the class has none). The rules compared are those for
+    // the metric `<asset class>_exposure`. A holding with no look-through data at that date has an unknown exposure,
+    // not zero: it is listed as missing, and the portfolio's exposure is then not computed and no rule is compared,
+    // since a sum over the rest would present part of the portfolio as the whole (§7.5).
     case 'lookthrough_exposure': {
       if (!a.asset_class) throw new Error('lookthrough_exposure needs asset_class')
       const h = holdings(review, a.portfolio_id, period)
       const lt = rowsOf(review, 'lookthrough')
       const used: string[] = []
       const missing: string[] = []
+      let uncovered = 0n
       const contributions = h.rows.map(({ row, weight }) => {
         const funds = lt.filter((x) => x.instrument_id === row.instrument_id && x.as_of === period)
-        if (!funds.length) missing.push(row.instrument_id)
-        const e = funds.find((x) => x.asset_class === a.asset_class)
         used.push(row.row_id, ...funds.map((x) => x.row_id))
+        const line = { row_id: row.row_id, instrument_id: row.instrument_id, instrument_name: row.instrument_name, fund_type: row.fund_type, weight: f4(weight) }
+        if (!funds.length) {
+          missing.push(row.instrument_id)
+          uncovered += weight
+          return { ...line, fund_exposure: null, contribution: null, raw: 0n }
+        }
+        const e = funds.find((x) => x.asset_class === a.asset_class)
         const exposure = e ? dec(e.exposure_weight) : 0n
-        return { row_id: row.row_id, instrument_id: row.instrument_id, instrument_name: row.instrument_name, fund_type: row.fund_type, weight: f4(weight), fund_exposure: f4(exposure), contribution: f4(mul(weight, exposure)), raw: mul(weight, exposure) }
+        return { ...line, fund_exposure: f4(exposure), contribution: f4(mul(weight, exposure)), raw: mul(weight, exposure) }
       })
+      const complete = !missing.length
       const exposure = sum(contributions.map((c) => c.raw))
       const metric = `${a.asset_class}_exposure`
-      const { comparisons, ruleRows } = compareRules(review, a.portfolio_id, period, metric, exposure)
+      const { comparisons, ruleRows } = complete ? compareRules(review, a.portfolio_id, period, metric, exposure) : { comparisons: [], ruleRows: [] }
+      const incomplete = complete ? {} : { incomplete: `${missing.length} holding(s), ${f4(uncovered)} of the portfolio by weight, have no look-through data at ${period}: the exposure is unknown and no rule was compared` }
       return {
-        result: { portfolio_id: a.portfolio_id, period_end: period, asset_class: a.asset_class, exposure: f4(exposure), holdings_without_lookthrough: missing, contributions: contributions.map(({ raw, ...c }) => c), comparisons },
+        result: { portfolio_id: a.portfolio_id, period_end: period, asset_class: a.asset_class, exposure: complete ? f4(exposure) : null, ...incomplete, holdings_without_lookthrough: missing, contributions: contributions.map(({ raw, ...c }) => c), comparisons },
         rowsUsed: [...used, ...ruleRows],
       }
     }
@@ -103,7 +113,7 @@ export function runCheck(review: Review, a: CheckArgs): { result: Record<string,
         rowsUsed: [...h.rows.map((x) => x.row.row_id), ...ruleRows],
       }
     }
-    // Portfolio minus benchmark return for the quarter; the tolerance rule limits its absolute size.
+    // Portfolio minus benchmark return for the period; the tolerance rule limits its absolute size.
     case 'relative_performance': {
       const p = rowsOf(review, 'performance').find((r) => r.portfolio_id === a.portfolio_id && r.period_end === period)
       if (!p) throw new Error(`no performance for ${a.portfolio_id} at ${period}`)

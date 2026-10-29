@@ -6,10 +6,10 @@ import { MODEL, costOf, respond, type InputItem } from './model.ts'
 import { MONTY_VERSION } from './sandbox.ts'
 import type { Review } from './sources.ts'
 import { isCurrent } from './evidence.ts'
-import { TOOLS, callTool, type RunState } from './tools.ts'
+import { BudgetSpent, TOOLS, callTool, type RunState } from './tools.ts'
 
 // The system instructions sent with every request. Their hash goes in each run's config, so a change shows there.
-export const INSTRUCTIONS = `You are an investment governance analyst preparing the quarterly review for an Investment Committee. Investigate the data you are given, using your tools, and report what the Committee needs to know, substantiated by evidence.
+export const INSTRUCTIONS = `You are an investment governance analyst preparing the periodic review for an Investment Committee. Investigate the data you are given, using your tools, and report what the Committee needs to know, substantiated by evidence.
 
 How to work:
 - Explore the data before forming conclusions. Do not assume what the problems are; there may be none.
@@ -44,7 +44,7 @@ function brief(review: Review, budget: Budget): string {
   const doc = review.sources.find((s) => s.id === 'policy_document')
   const issues = review.sources.reduce((n, s) => n + s.issues.length, 0)
   return [
-    `Review ${review.id}. Period under review: the quarter ending ${review.periodEnd}. Periods in the data: ${review.periods.join(', ')}.`,
+    `Review ${review.id}. Period under review: the period ending ${review.periodEnd}. Periods in the data: ${review.periods.join(', ')}.`,
     `Portfolios: ${portfolios.map((p) => `${p.portfolio_id} (${p.portfolio_name})`).join(', ')}.`,
     'Objective: review the supplied data against the applicable governance policies, identify the matters that need the Investment Committee’s attention, and substantiate them.',
     `Sources: ${review.sources.map((s) => `${s.id} (${s.rows.length ? `${s.rows.length} rows` : `${s.sections?.length ?? 0} sections`}): ${s.description}`).join('\n- ').replace(/^/, '\n- ')}`,
@@ -89,6 +89,9 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
   let toolCalls = 0
   let status = ''
   let summary = ''
+  // Set once any tool call is refused for a spent budget (tool calls or Python): the run then ends budget_exhausted,
+  // even if the model goes on to write its summary, since the review was cut short (§8.4).
+  let budgetSpent = false
   // Never pass `input` here: it holds the encrypted reasoning (§8.5).
   const save = (final = false) =>
     saveRun({
@@ -131,9 +134,10 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
       for (const i of items) input.push(i.type === 'reasoning' ? { ...i, summary: i.summary ?? [] } : i)
 
       // No tool call: the model has finished, unless its answer was cut off at the output limit. The status is
-      // blocked if it recorded a blocker and proposed nothing; completed with uncertainties if an open question or
-      // a blocker remains, or a proposed potential exception was stored as an observation because its figures were
-      // not validated; otherwise completed. An observation with no figures to validate is not an uncertainty.
+      // budget_exhausted if a budget refused a call along the way; blocked if it recorded a blocker and proposed
+      // nothing; completed with uncertainties if an open question or a blocker remains, or a proposed potential
+      // exception was stored as an observation because its figures were not validated; otherwise completed. An
+      // observation with no figures to validate is not an uncertainty.
       if (!calls.length) {
         if (response.status === 'incomplete') {
           input.push({ role: 'user', content: 'Your last response was cut off at the output limit. Continue.' })
@@ -141,7 +145,7 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
         }
         summary = text
         const unresolved = state.notes.some((n) => n.kind === 'open_question' || n.kind === 'blocker') || state.findings.some((f) => f.classification !== f.proposed_classification && isCurrent(f))
-        status = state.notes.some((n) => n.kind === 'blocker') && !state.findings.length ? 'blocked' : unresolved ? 'completed_with_uncertainties' : 'completed'
+        status = budgetSpent ? 'budget_exhausted' : state.notes.some((n) => n.kind === 'blocker') && !state.findings.length ? 'blocked' : unresolved ? 'completed_with_uncertainties' : 'completed'
         break
       }
       // Run each tool call. Any error, bad JSON arguments and a spent budget included, goes back to the model as
@@ -152,12 +156,13 @@ export async function investigate(review: Review, opts: { budget?: Partial<Budge
         let output: unknown
         const started = performance.now()
         try {
-          if (toolCalls > budget.maxToolCalls) throw new Error('tool-call budget is spent; reply with your summary now')
+          if (toolCalls > budget.maxToolCalls) throw new BudgetSpent('tool-call budget is spent; reply with your summary now')
           const parsed: unknown = JSON.parse(c.arguments || '{}')
           if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('arguments must be a JSON object')
           args = parsed as Record<string, unknown>
           output = await callTool(state, c.name, args)
         } catch (e) {
+          if (e instanceof BudgetSpent) budgetSpent = true
           output = { error: (e as Error).message }
         }
         const ms = Math.round(performance.now() - started)

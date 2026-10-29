@@ -11,8 +11,8 @@ import { getFile, putFile, retainSources } from './files.ts'
 import { findingState, itemState, refreshStatus, PACK_STEP, type ItemState, type Kind, type LedgerEntry } from './ledger.ts'
 import { basisWords, CHECKED_SCOPE, runTag } from './package.ts'
 import { renderPdf } from './render.ts'
-import { reviewDir } from './review-sources.ts'
-import { importReview } from './sources.ts'
+import { assemble, reviewDir, sourceSet } from './review-sources.ts'
+import { importReview, type Review } from './sources.ts'
 
 // One accepted item: its candidate id, the evidence Cairn reported for it, and the SHA-256 of what IGI sent.
 type Accepted = { candidateId: string; evidence: Evidence; sha256: string }
@@ -39,6 +39,9 @@ export type SnapshotFinding = {
   checks: { id: string; check: string; portfolio_id: string; period_end: string | null; comparisons: Comparison[] }[]
   // The previous committee actions an outstanding-action finding cites, as the action log records them.
   committeeActions: CommitteeAction[]
+  // The rule versions its policy rule and its checks' comparisons name. Both this and committeeActions are read from
+  // the sources its own run analysed, which its accepted package rests on. Absent from packs made before.
+  rules?: Snapshot['rules']
   executionIds: string[]
   assertion: Accepted
   package: Accepted
@@ -58,7 +61,8 @@ export type Snapshot = {
 
   run: { id: string; status: string; model: string; reasoningEffort: string; montyVersion: string; igiCommit: string; instructionsSha: string; toolsSha: string }
   sources: { file: string; sha256: string; key: string; rows: number; issues: string[] }[]
-  portfolios: { id: string; name: string; objective: string; benchmark: string; allocation: { period: string; assetClass: string; exposure: string }[] }[]
+  // exposure is null where a holding has no look-through data at the period, so the exposure is unknown.
+  portfolios: { id: string; name: string; objective: string; benchmark: string; allocation: { period: string; assetClass: string; exposure: string | null }[] }[]
   rules: { rule_id: string; version: string; portfolio_id: string; metric: string; limit_type: string; threshold: string; document_clause: string }[]
   openActions: CommitteeAction[]
   findings: SnapshotFinding[]
@@ -100,6 +104,8 @@ export type PackRow = {
 export type Blocker = { finding?: { runId: string; id: string; version: number; title: string }; reason: string }
 
 const sha256 = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex')
+// A source file as a register entry, for comparing two sets of sources: "file (SHA-256 first 12 hex)".
+const sourceKey = (s: { file: string; sha256: string }) => `${s.file} (SHA-256 ${s.sha256.slice(0, 12)})`
 /** JSON with object keys sorted, so the snapshot hashes the same after jsonb reorders its keys. */
 export const canonical = (v: unknown) =>
   JSON.stringify(v, (_, x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x))
@@ -180,17 +186,21 @@ export function reconcileAdvice(x: ExcludedItem): string | null {
 
 /**
  * Marks stale every pack whose included evidence is no longer filed and active on the record, whose finding was
- * withdrawn, or whose record now holds active evidence of a version the pack leaves out.
+ * withdrawn, or whose record now holds active evidence of a version the pack leaves out; and every pack the review
+ * has moved on from, because its sources changed or a later analysis run now governs it (§13.3). Calls nothing
+ * outside IGI.
  */
 export async function markStalePacks(reviewId: string) {
   const packs = await sql<PackRow[]>`select * from committee_pack where review_id = ${reviewId} and stale_at is null`
   if (!packs.length) return
-  const [entries, withdrawn, excluded] = await Promise.all([
+  const [entries, withdrawn, excluded, current, [latest]] = await Promise.all([
     reviewEntries(reviewId),
     sql<Pick<FindingRow, 'run_id' | 'id' | 'version' | 'withdrawal_reason'>[]>`
       select f.run_id, f.id, f.version, f.withdrawal_reason from finding f join analysis_run r on r.id = f.run_id
       where r.review_id = ${reviewId} and f.withdrawn_at is not null`,
     excludedItems(reviewId, packs[0].snapshot.recordReference),
+    sourceSet(reviewId),
+    sql<{ id: string }[]>`select id from analysis_run where review_id = ${reviewId} order by started_at desc limit 1`,
   ])
   // For each pack not yet stale, every included finding gives a reason if it has been withdrawn since, or else for
   // each of its two items that is no longer accepted on the pack's record. Then every active item of a version
@@ -206,6 +216,11 @@ export async function markStalePacks(reviewId: string) {
       })
     })
     for (const x of excluded) if (x.state === 'accepted' && !included(x)) reasons.push(`${x.id} v${x.version} ${x.kind} ${x.evidence?.cairnReference} active on the record although ${x.why}`)
+    // The review moved on: each side of the source comparison is a set of register entries, and anything in one
+    // set but not the other is listed.
+    const changed = [...new Set(current.map(sourceKey)).symmetricDifference(new Set(p.snapshot.sources.map(sourceKey)))]
+    if (changed.length) reasons.push(`the review's sources changed since the pack: ${changed.join(', ')}`)
+    if (latest && latest.id !== p.snapshot.run.id) reasons.push(`analysis run ${latest.id} is later than the pack's run ${p.snapshot.run.id}`)
     if (reasons.length) await sql`update committee_pack set stale_at = now(), stale_reason = ${reasons.join('; ')} where review_id = ${reviewId} and version = ${p.version} and stale_at is null`
   }
 }
@@ -238,7 +253,7 @@ export const listPacks = (reviewId: string) =>
  * or rejected version on the record, or sources that no longer match the latest run. Calls nothing outside IGI.
  */
 async function assessPack(reviewId: string) {
-  const [review] = await sql<{ cairn_record: RecordSteps | null }[]>`select cairn_record from review where id = ${reviewId}`
+  const [review] = await sql<{ cairn_record: RecordSteps | null; period_end: string }[]>`select cairn_record, period_end::text from review where id = ${reviewId}`
   if (!review) throw new Error(`no review ${reviewId}`)
   const [run] = await sql<Pick<RunRow, 'id' | 'status' | 'config'>[]>`select id, status, config from analysis_run where review_id = ${reviewId} order by started_at desc limit 1`
   if (!run) throw new Error(`review ${reviewId} has no analysis run`)
@@ -270,10 +285,9 @@ async function assessPack(reviewId: string) {
   // Fourth, the sources must be exactly those the latest run analysed: each side is a set of "file (hash)" strings,
   // and anything in one set but not the other is listed.
   const dir = await reviewDir(reviewId)
-  const data = importReview(dir, reviewId)
-  const key = (s: { file: string; sha256: string }) => `${s.file} (SHA-256 ${s.sha256.slice(0, 12)})`
-  const now = new Set(data.sources.map(key))
-  const then = new Set(run.config.sources.map(key))
+  const data = importReview(dir, reviewId, review.period_end)
+  const now = new Set(data.sources.map(sourceKey))
+  const then = new Set(run.config.sources.map(sourceKey))
   const changed = [...now.symmetricDifference(then)]
   if (changed.length) blockers.push({ reason: `the sources differ from those of the latest analysis run ${run.id}: ${changed.join(', ')}; investigate again` })
   return { blockers, review, run, recordReference, resolved, included, excluded, dir, data }
@@ -302,6 +316,15 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
   const periods = data.periods.slice(-2)
   const runIds = [...new Set(included.map((r) => r.f.run_id))]
   const checks = runIds.length ? await sql<CheckRow[]>`select * from check_result where run_id in ${sql(runIds)}` : []
+  // Each included finding's committee actions and rule versions come from the sources its own run analysed, which
+  // its accepted package rests on, never from the review's sources now (§6.5, §13.2). A run on the current sources
+  // reads them as they are; an earlier run's are read back from the file store.
+  const runConfigs = runIds.length ? await sql<Pick<RunRow, 'id' | 'config'>[]>`select id, config from analysis_run where id in ${sql(runIds)}` : []
+  const currentKeys = new Set(data.sources.map(sourceKey))
+  const asCurrent = (c: RunRow['config']) => new Set(c.sources.map(sourceKey)).symmetricDifference(currentKeys).size === 0
+  const runData = new Map<string, Review>(runConfigs.map((x) => [x.id, asCurrent(x.config) ? data : importReview(assemble(reviewId, x.config.sources), reviewId, data.periodEnd)]))
+  const runRows = (runId: string, id: string) => runData.get(runId)?.sources.find((s) => s.id === id)?.rows ?? []
+  const rule = ({ rule_id, version, portfolio_id, metric, limit_type, threshold, document_clause }: Record<string, string>) => ({ rule_id, version, portfolio_id, metric, limit_type, threshold, document_clause })
   // What the latest run left unresolved: its open questions and blockers, and any potential exception it proposed
   // that was stored as an observation because its figures were not all found in its cited checks.
   const notes = await sql<Pick<NoteRow, 'id' | 'text'>[]>`select id, text from note where run_id = ${run.id} and kind in ('open_question', 'blocker') order by length(id), id`
@@ -344,7 +367,8 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
       allocation: periods.flatMap((period) =>
         assetClasses.flatMap((assetClass) => {
           try {
-            return [{ period, assetClass, exposure: String(runCheck(data, { check: 'lookthrough_exposure', portfolio_id: p.portfolio_id, period_end: period, asset_class: assetClass }).result.exposure) }]
+            const exposure = runCheck(data, { check: 'lookthrough_exposure', portfolio_id: p.portfolio_id, period_end: period, asset_class: assetClass }).result.exposure
+            return [{ period, assetClass, exposure: typeof exposure === 'string' ? exposure : null }]
           } catch {
             return [] // no positions at that period: already a validation issue
           }
@@ -353,7 +377,7 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
     })),
     rules: rows('policy_rules')
       .filter((r) => r.effective_from <= data.periodEnd && (!r.effective_to || r.effective_to >= data.periodEnd))
-      .map(({ rule_id, version, portfolio_id, metric, limit_type, threshold, document_clause }) => ({ rule_id, version, portfolio_id, metric, limit_type, threshold, document_clause })),
+      .map(rule),
     openActions: rows('committee_actions')
       .filter((a) => a.status.toLowerCase() !== 'completed')
       .map(action),
@@ -366,6 +390,11 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
         ...(c.coverage ?? []).flatMap((x) => x.checks ?? []),
         ...(c.material_numbers ?? []).map((n) => n.check_id),
       ])
+      const cited = checks
+        .filter((x) => x.run_id === r.f.run_id && ids.has(x.id))
+        .map((x) => ({ id: x.id, check: x.args.check, portfolio_id: x.args.portfolio_id, period_end: x.args.period_end ?? null, comparisons: Array.isArray(x.result.comparisons) ? (x.result.comparisons as Comparison[]) : [] }))
+      // The rule versions the finding names: its policy rule and every rule its cited checks compared.
+      const named = new Set([...(c.policy_rule ? [`${c.policy_rule.rule_id} v${c.policy_rule.version}`] : []), ...cited.flatMap((x) => x.comparisons.map((k) => `${k.rule_id} v${k.version}`))])
       return {
         runId: r.f.run_id,
         id: r.f.id,
@@ -383,10 +412,9 @@ export async function generatePack(cairn: Cairn, reviewId: string): Promise<{ pa
         coverage: r.f.validation.coverage ?? [],
         revises: c.revision?.accepted ? c.revision.of : null,
         uncertainties: c.uncertainties ?? [],
-        checks: checks
-          .filter((x) => x.run_id === r.f.run_id && ids.has(x.id))
-          .map((x) => ({ id: x.id, check: x.args.check, portfolio_id: x.args.portfolio_id, period_end: x.args.period_end ?? null, comparisons: Array.isArray(x.result.comparisons) ? (x.result.comparisons as Comparison[]) : [] })),
-        committeeActions: r.f.classification === 'outstanding_action' ? rows('committee_actions').filter((a) => c.cited_rows?.includes(a.row_id)).map(action) : [],
+        checks: cited,
+        committeeActions: r.f.classification === 'outstanding_action' ? runRows(r.f.run_id, 'committee_actions').filter((a) => c.cited_rows?.includes(a.row_id)).map(action) : [],
+        rules: runRows(r.f.run_id, 'policy_rules').filter((x) => named.has(`${x.rule_id} v${x.version}`)).map(rule),
         executionIds: c.execution_ids ?? [],
         assertion: accepted(r, 'assertion'),
         package: accepted(r, 'file'),
@@ -508,10 +536,9 @@ article { border-top: 1px solid #ccc; } code { font-size: .8rem; word-break: bre
 
 /** The pre-meeting pack (§13.4), from the snapshot alone. Every string from the snapshot is escaped. */
 export function renderPack(s: Snapshot, version: number, snapshotSha: string): string {
-  // Findings counted by classification, every validation issue, and a rule lookup.
+  // Findings counted by classification, and every validation issue.
   const types = Object.entries(Object.groupBy(s.findings, (f) => f.classification)).map(([c, fs]) => `${label(c)} ${fs!.length}`)
   const issues = s.sources.flatMap((x) => x.issues.map((i) => `${x.file}: ${i}`))
-  const rule = (id: string, v: string) => s.rules.find((r) => r.rule_id === id && r.version === v)
   const completed = ['completed', 'completed_with_uncertainties'].includes(s.run.status)
 
   const overview = [
@@ -533,18 +560,23 @@ export function renderPack(s: Snapshot, version: number, snapshotSha: string): s
     : '<p>No findings. Every potential exception the analysis proposed was rejected in Cairn or withdrawn by the operator.</p>'
 
   // One table per portfolio: each asset class's look-through exposure at the previous and current period, the
-  // change, and a bar 12rem long at 100%.
+  // change, and a bar 12rem long at 100%. An exposure left unknown by missing look-through data says so.
   const portfolios = s.portfolios.map((p) => {
     const [prev, cur] = s.periods.length > 1 ? s.periods.slice(-2) : [undefined, s.periodEnd]
-    const at = (period: string | undefined, assetClass: string) => p.allocation.find((a) => a.period === period && a.assetClass === assetClass)?.exposure
+    const entry = (period: string | undefined, assetClass: string) => p.allocation.find((a) => a.period === period && a.assetClass === assetClass)
+    const at = (period: string | undefined, assetClass: string) => entry(period, assetClass)?.exposure ?? undefined
+    const cell = (period: string | undefined, assetClass: string) => {
+      const e = entry(period, assetClass)
+      return e?.exposure ? pct(e.exposure) : e ? 'unknown: look-through data missing' : '–'
+    }
     const classes = [...new Set(p.allocation.map((a) => a.assetClass))]
     const body = classes.map((c) => {
       const before = at(prev, c)
       const now = at(cur, c)
       return [
         esc(c),
-        before ? pct(before) : '–',
-        now ? pct(now) : '–',
+        cell(prev, c),
+        cell(cur, c),
         before && now ? `${dec(now) >= dec(before) ? '+' : '−'}${points(fmt(dec(now) - dec(before), 4))} pp` : '–',
         now ? `<span class="bar" style="width:${(Number(now) * 12).toFixed(2)}rem"></span>` : '',
       ]
@@ -556,6 +588,8 @@ export function renderPack(s: Snapshot, version: number, snapshotSha: string): s
   // threshold, the committee actions an outstanding action rests on, supporting figures, policy comparisons,
   // explanation, uncertainties and evidence references.
   const findings = s.findings.map((f) => {
+    // The finding's rule versions as its own run read them (a pack from before reads the pack's rules in force).
+    const rule = (id: string, v: string) => (f.rules ?? s.rules).find((x) => x.rule_id === id && x.version === v)
     const r = f.policyRule && rule(f.policyRule.rule_id, f.policyRule.version)
     // Only comparisons that support the finding: those on the measure of the rule it names (that rule, and the same
     // limit for other portfolios it covers). A finding that names no rule shows none, since a cited check's

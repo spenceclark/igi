@@ -182,6 +182,38 @@ test('validation: a claim about every fund held fails when the cited checks miss
   assert.deepEqual(finding(s, bare.finding_id).validation.unsupported_scope, ['All other funds'])
 })
 
+test('validation: coverage supports only a statement of its own kind, over the population the statement names', async () => {
+  const s = runOn()
+  const portfolios = rows(s.review, 'portfolios').map((p) => p.portfolio_id)
+  // One valid coverage claim of an unrelated kind does not support a statement that every limit is met.
+  const recon = await check(s, { check: 'weight_reconciliation', portfolio_id: portfolios[0] })
+  const weights: CoverageClaim = { kind: 'weights_reconcile', portfolios: [portfolios[0]], checks: [recon.check_id] }
+  const unrelated = await propose(s, { portfolios: [portfolios[0]], statement: 'All portfolios meet every policy limit.', coverage: [weights] })
+  assert.equal(unrelated.validation.state, 'unvalidated')
+  assert.deepEqual(finding(s, unrelated.finding_id).validation.unsupported_scope, ['All portfolios', 'every policy limit'])
+  // Limits met for one portfolio, from a check of every rule in force for it, the data deciding which portfolio.
+  const inForce = (p: string) => rows(s.review, 'policy_rules').filter((r) => (r.portfolio_id === p || r.portfolio_id === 'ALL') && r.effective_from <= s.review.periodEnd && (!r.effective_to || r.effective_to >= s.review.periodEnd))
+  let met: { p: string; claim: CoverageClaim } | undefined
+  for (const p of portfolios) {
+    const checks = await Promise.all(
+      [...new Set(inForce(p).map((r) => r.metric))].map((m) =>
+        m === 'single_holding_weight' ? check(s, { check: 'holding_concentration', portfolio_id: p }) : m === 'relative_return_deviation' ? check(s, { check: 'relative_performance', portfolio_id: p }) : check(s, { check: 'lookthrough_exposure', portfolio_id: p, asset_class: m.replace(/_exposure$/, '') }),
+      ),
+    )
+    const claim: CoverageClaim = { kind: 'limits_met', portfolios: [p], checks: checks.map((c) => c.check_id) }
+    const r = await propose(s, { portfolios: [p], statement: 'Every limit in force was met.', coverage: [claim] })
+    if (r.validation.state === 'validated') met = { p, claim }
+    if (met) break
+  }
+  assert.ok(met, 'the fixture has a portfolio within every limit')
+  // The same claim does not stretch to every portfolio in the review.
+  const stretched = await propose(s, { portfolios: [met.p], statement: 'All portfolios met every limit in force.', coverage: [met.claim] })
+  assert.deepEqual(finding(s, stretched.finding_id).validation.unsupported_scope, ['All portfolios'])
+  // Nor to a sentence whose topic it can't be tied to.
+  const vague = await propose(s, { portfolios: [met.p], statement: 'No other holding is affected.', coverage: [met.claim] })
+  assert.deepEqual(finding(s, vague.finding_id).validation.unsupported_scope, ['No other holding'])
+})
+
 test('validation: look-through totals of 100% do not hide a holding with no look-through data', async () => {
   // A copy where the first holding of the first portfolio has no look-through rows at the period end; every other
   // fund's rows still sum to 100%.
@@ -191,6 +223,14 @@ test('validation: look-through totals of 100% do not hide a holding with no look
   const s = runOn(dir)
   const c = await check(s, { check: 'lookthrough_exposure', portfolio_id: first.portfolio_id, asset_class: 'equity' })
   assert.equal(valueOf(c, 'holdings_without_lookthrough'), '1')
+  // The missing holding's exposure is unknown, not zero: no portfolio exposure, no comparison, nothing to claim.
+  assert.equal(c.exposure, null)
+  assert.deepEqual(c.comparisons, [])
+  assert.match(String(c.incomplete), /no look-through data/)
+  assert.equal(valueOf(c, 'exposure'), undefined)
+  assert.equal(valueOf(c, `${first.instrument_id}:fund_exposure`), undefined)
+  const exposure = await propose(s, { portfolios: [first.portfolio_id], statement: 'Equity exposure.', claims: [{ key: 'e', label: 'Equity exposure', value: '0%', measure: 'exposure', asset_class: 'equity', source: { fact: `${c.check_id}:exposure` } }] })
+  assert.equal(exposure.validation.state, 'unvalidated')
   const claim: CoverageClaim = { kind: 'lookthrough_complete', portfolios: [first.portfolio_id], checks: [c.check_id] }
   const r = await propose(s, { review_area: 'source_data', portfolios: [first.portfolio_id], statement: 'Look-through data has full coverage.', coverage: [claim] })
   const v = finding(s, r.finding_id).validation

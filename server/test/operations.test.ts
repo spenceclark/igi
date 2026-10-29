@@ -83,6 +83,12 @@ test('sources: each upload is an immutable version; the review reads the current
   // Names that could reach outside the folder, other formats and empty files are refused.
   for (const bad of ['../fees.csv', 'a/b.csv', 'fees.exe', '.hidden.csv']) await assert.rejects(sources.uploadSource('r1', bad, new Uint8Array(1)), /not an accepted source file/)
   await assert.rejects(sources.uploadSource('r1', 'empty.csv', new Uint8Array()), /is empty/)
+
+  // A review for a period the sources don't reach is refused before any model call.
+  await reviews.createReview('r2', '2026-12-31')
+  for (const f of readdirSync(DEV01)) await sources.uploadSource('r2', f, new Uint8Array(readFileSync(join(DEV01, f))))
+  await assert.rejects(reviews.investigateReview('r2'), /no positions at the review's period end 2026-12-31/)
+  assert.equal((await db.sql`select 1 from operation where review_id = 'r2'`).length, 0)
 })
 
 test('status: a failed read of Cairn is recorded as uncertainty and changes no candidate', { skip }, async () => {

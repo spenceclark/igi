@@ -5,6 +5,8 @@ import { Action, Badge, Problem, useLive, when } from './ui.tsx'
 
 /** A pack's state for the reader: stale (its evidence changed), superseded (a later one exists), or current. */
 const packState = (p: PackRow) => (p.stale_reason ? 'stale' : p.superseded ? 'superseded' : 'current')
+/** The label on a link to a pack that isn't current, which opens only as a historical copy. */
+const historical = (p: PackRow) => (packState(p) === 'current' ? '' : ' (historical)')
 /** Where a pack's own submission to Cairn stands, in words. */
 const inCairn = (p: PackRow) => {
   const s = p.submission
@@ -53,7 +55,7 @@ export function Pack({ id, hasRecord }: { id: string; hasRecord: boolean }) {
               <td><Badge state={packState(p)} />{p.stale_reason && <div className="meta">{p.stale_reason}</div>}</td>
               <td>{p.findings.join(', ') || 'none'}<div className="meta">{p.counts.rejected} rejected, {p.counts.withdrawn} withdrawn, {p.counts.notSubmitted} not submitted</div></td>
               <td>
-                {p.pdf_key ? <a href={api.packUrl(id, p.version, 'pdf')} target="_blank" rel="noreferrer">PDF</a> : 'no PDF'} · <a href={api.packUrl(id, p.version, 'html')} target="_blank" rel="noreferrer">preview</a>
+                {p.pdf_key ? <a href={api.packUrl(id, p.version, 'pdf', packState(p) !== 'current')} target="_blank" rel="noreferrer">PDF{historical(p)}</a> : 'no PDF'} · <a href={api.packUrl(id, p.version, 'html', packState(p) !== 'current')} target="_blank" rel="noreferrer">preview{historical(p)}</a>
               </td>
               <td>{inCairn(p)}</td>
             </tr>
@@ -61,7 +63,7 @@ export function Pack({ id, hasRecord }: { id: string; hasRecord: boolean }) {
           {d && !d.packs.length && <tr><td colSpan={6} className="meta">No pack yet.</td></tr>}
         </tbody>
       </table>
-      <p className="meta">A stale pack's evidence changed after it was generated: it stays in the history, and a new pack supersedes it. A file already downloaded or filed in Cairn can't be changed from here.</p>
+      <p className="meta">A stale pack's evidence, sources or analysis run changed after it was generated: it stays in the history, and a new pack supersedes it. Opening a pack reads Cairn first; a pack that isn't current opens only as a historical copy. A file already downloaded or filed in Cairn can't be changed from here.</p>
     </div>
   )
 }

@@ -62,8 +62,10 @@ export type Finding = FindingArgs & {
   superseded_by?: string
   revision?: Revision
 }
+// A tool call refused because a run budget is spent: the agent is told, and the run ends budget_exhausted (§8.4).
+export class BudgetSpent extends Error {}
 // Everything one investigation run builds up, held in memory and saved with the run.
-export type RunState = { review: Review; now: Date; executions: Execution[]; checks: Check[]; notes: Note[]; findings: Finding[]; maxPython: number }
+export type RunState ={ review: Review; now: Date; executions: Execution[]; checks: Check[]; notes: Note[]; findings: Finding[]; maxPython: number }
 
 // Builders for the tools' JSON schemas. An object rejects properties it doesn't declare.
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false })
@@ -141,7 +143,7 @@ export const TOOLS = [
       '- quote with row or section: the exact words of a committee_actions row or a policy document section that contain the figure, for a threshold or target written only in text (measure action_threshold or document_figure). A quoted figure is an extract a person reads in context, never a structured rule;',
       '- derived with of (two claim keys): difference (measure change), relative_change, or comparison with a relation (above, below, at_or_above, at_or_below, equal; no value).',
       `Scope: portfolio, period, instrument (an instrument id) and asset_class must match the evidence; portfolio defaults to the finding's portfolios and period to its period_end, so give them for a figure from another portfolio or date. Measures: ${Object.entries(MEASURES).map(([k, v]) => `${k} (${v})`).join('; ')}.`,
-      `coverage proves a statement about a whole population (all portfolios, every holding, no other fund, full coverage), from run_check results only: ${Object.entries(COVERAGE).map(([k, v]) => `${k} (${v})`).join('; ')}. Give the portfolios it covers.`,
+      `coverage proves a statement about a whole population (all portfolios, every holding, no other fund, full coverage), from run_check results only: ${Object.entries(COVERAGE).map(([k, v]) => `${k} (${v})`).join('; ')}. Give the portfolios it covers. A statement is supported only by coverage of the kind it states, over the population it names: wording about portfolios needs every portfolio in the review, other wording the finding's portfolios.`,
       'IGI checks each claim against its evidence and each coverage claim against the population in the sources. The finding is validated only if all of them check out and no figure or population statement in the text is left unsupported; a potential_exception that is not validated is stored as an unvalidated observation. The reasoning and conclusion are not checked: they are yours, reviewed by a person.',
       'To revise a current finding, propose the new version with replaces set to its id. The revision becomes current if it is validated, or if the finding it replaces was not; otherwise it is kept as a rejected revision and the earlier finding stays current.',
     ].join('\n'),
@@ -224,7 +226,7 @@ export async function callTool(state: RunState, name: string, args: Record<strin
       return getPolicy(review, args as Parameters<typeof getPolicy>[1])
     case 'run_python': {
       if (typeof args.code !== 'string' || !args.code.trim()) throw new Error('code is required')
-      if (state.executions.length >= state.maxPython) throw new Error(`Python execution budget (${state.maxPython}) is spent; use run_check or conclude`)
+      if (state.executions.length >= state.maxPython) throw new BudgetSpent(`Python execution budget (${state.maxPython}) is spent; use run_check or conclude`)
       // read_data inside Python is the same bounded read as the tool, with the largest limit by default; each
       // call is logged on the execution.
       const reads: Execution['reads'] = []

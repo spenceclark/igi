@@ -6,11 +6,11 @@
 // spark, in a Vessel session named after the run, so every turn can be inspected there.
 import { basename, resolve } from 'node:path'
 import { investigate } from '../src/agent.ts'
-import { migrate, saveReview } from '../src/db.ts'
+import { migrate, saveReview, sql } from '../src/db.ts'
 import { retainSources } from '../src/files.ts'
 import { useVessel } from '../src/model.ts'
 import { closeSandbox } from '../src/sandbox.ts'
-import { importReview } from '../src/sources.ts'
+import { importReview, periodProblem } from '../src/sources.ts'
 import { isCurrent } from '../src/evidence.ts'
 
 const [dir, ...rest] = process.argv.slice(2)
@@ -21,10 +21,18 @@ if (!dir) {
 const option = (name: string) => (rest.includes(name) ? rest[rest.indexOf(name) + 1] : undefined)
 const effort = option('--effort')
 if (rest.includes('--vessel')) console.log(`Model requests go through Vessel at ${useVessel()}, in a session named after the run.`)
-const review = importReview(dir, option('--review') ?? basename(dir))
+const id = option('--review') ?? basename(dir)
+await migrate()
+// An existing review keeps its own period end; a new one takes the latest position date in the folder.
+const [existing] = await sql<{ period_end: string }[]>`select period_end::text from review where id = ${id}`
+const review = importReview(dir, id, existing?.period_end)
 const issues = review.sources.flatMap((s) => s.issues)
 console.log(`Imported ${review.id}: ${review.sources.length} sources, ${issues.length} validation issues`)
-await migrate()
+const problem = periodProblem(review)
+if (problem) {
+  console.error(problem)
+  process.exit(1)
+}
 await saveReview({ id: review.id, periodEnd: review.periodEnd, sourceDir: resolve(dir) })
 retainSources(dir, review.sources) // the run records these hashes; the file store keeps the bytes behind them
 

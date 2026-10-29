@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dec, div, fmt, mul, sum } from '../src/decimal.ts'
 import { parseCsv, toCsv } from '../src/csv.ts'
-import { importReview } from '../src/sources.ts'
+import { importReview, periodProblem } from '../src/sources.ts'
 import { callTool, type RunState } from '../src/tools.ts'
 import { parseFigure, proseFigures, sameFigure, type Unit } from '../src/evidence.ts'
 import { route, useVessel } from '../src/model.ts'
@@ -16,6 +16,21 @@ test('import: a generated scenario validates clean', () => {
   const r = importReview(SCENARIO.pathname.replace(/^\/(\w:)/, '$1'), 'dev-01')
   assert.deepEqual(r.sources.flatMap((s) => s.issues), [])
   assert.equal(r.periodEnd, '2026-09-30')
+})
+
+test('import: the sources are read for the review’s own period end, never the latest date in them', () => {
+  const dir = SCENARIO.pathname.replace(/^\/(\w:)/, '$1')
+  const latest = importReview(dir, 'r')
+  // A later period than the data holds: nothing to investigate, and said so.
+  const later = importReview(dir, 'r', '2026-12-31')
+  assert.equal(later.periodEnd, '2026-12-31')
+  assert.match(periodProblem(later)!, /no positions at the review's period end 2026-12-31/)
+  assert.match(later.sources.flatMap((s) => s.issues).join('\n'), /no positions at the review's period end/)
+  // An earlier period: that period is analysed, and positions after it are reported.
+  const earlier = importReview(dir, 'r', latest.periods.at(-2))
+  assert.equal(periodProblem(earlier), undefined)
+  assert.deepEqual(earlier.periods, latest.periods.slice(0, -1))
+  assert.match(earlier.sources.flatMap((s) => s.issues).join('\n'), new RegExp(`is after the review's period end ${latest.periods.at(-2)}`))
 })
 
 test('import: tampered data is reported, never repaired', () => {

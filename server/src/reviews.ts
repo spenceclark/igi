@@ -9,8 +9,8 @@ import { saveReview, sql } from './db.ts'
 import { retainSources } from './files.ts'
 import { openRecord, submitFinding, type FindingRef } from './ledger.ts'
 import { AlreadyRunning, recoverOperations, startOperation } from './operations.ts'
-import { reviewDir } from './review-sources.ts'
-import { importReview } from './sources.ts'
+import { reviewDir, reviewPeriod } from './review-sources.ts'
+import { importReview, periodProblem } from './sources.ts'
 
 // A review id is short and safe in a URL, a file name and a Cairn source reference.
 const REVIEW_ID = /^[a-z0-9][a-z0-9-]{1,40}$/
@@ -31,8 +31,10 @@ export async function createReview(id: string, periodEnd: string) {
  */
 export async function investigateReview(reviewId: string, opts: { effort?: string } = {}) {
   const dir = await reviewDir(reviewId)
-  const review = importReview(dir, reviewId)
+  const review = importReview(dir, reviewId, await reviewPeriod(reviewId))
   if (!review.sources.length) throw new Error(`review ${reviewId} has no sources to investigate`)
+  const problem = periodProblem(review)
+  if (problem) throw new Error(problem)
   retainSources(dir, review.sources)
   return startOperation(reviewId, 'investigate', async () => {
     const r = await investigate(review, { budget: opts.effort ? { effort: opts.effort } : {} })
@@ -75,22 +77,28 @@ export const submitReviewFindings = (cairn: Cairn, reviewId: string, refs: Findi
 
 /**
  * Reads back every candidate of the review and re-checks its packs (checkPacks), recording when Cairn was read,
- * or why the read failed. A failed read changes no candidate's state: it is uncertainty, not a decision. Reads
- * within 15 seconds of the last good one are skipped, so returning to the window repeatedly stays within Cairn's
- * rate limit (§14).
+ * or why the read failed. A failed read changes no candidate's state: it is uncertainty, not a decision.
+ */
+export async function readCairn(cairn: Cairn, reviewId: string) {
+  try {
+    await checkPacks(cairn, reviewId)
+    await sql`update review set status_checked_at = now(), status_error = null where id = ${reviewId}`
+  } catch (e) {
+    await sql`update review set status_error = ${(e as Error).message} where id = ${reviewId}`
+    throw e
+  }
+}
+
+/**
+ * Reads Cairn for the review as an operation (readCairn). Reads within 15 seconds of the last good one are skipped,
+ * so returning to the window repeatedly stays within Cairn's rate limit (§14).
  */
 export const refreshReview = (cairn: Cairn, reviewId: string) =>
   startOperation(reviewId, 'refresh_status', async () => {
     const [recent] = await sql`select 1 from review where id = ${reviewId} and status_checked_at > now() - interval '15 seconds'`
     if (recent) return { checked: false }
-    try {
-      await checkPacks(cairn, reviewId)
-      await sql`update review set status_checked_at = now(), status_error = null where id = ${reviewId}`
-      return { checked: true }
-    } catch (e) {
-      await sql`update review set status_error = ${(e as Error).message} where id = ${reviewId}`
-      throw e
-    }
+    await readCairn(cairn, reviewId)
+    return { checked: true }
   })
 
 /** Generates the next committee pack from a fresh read-back, or records what blocks it. */

@@ -379,3 +379,54 @@ Reviewing the first real pack (dev-01 v1) beside the Cairn record's printout.
 - Gate B observations for later: Spark sweeps every catalogue check across every portfolio before forming hypotheses, so the checks, not Python, do most of the discovery. The holdout therefore needs at least one issue type no catalogue check covers; the overdue-action findings show Spark can find those. Classifications for the notification trigger vary between runs (observation, outstanding action).
 - The leak scan is a throwaway script; make it part of the evaluation harness so it runs before every evaluation.
 - Re-run the Monty smoke test on the DigitalOcean service at first deploy.
+
+**Specification audit — 29 October 2026**
+
+- Reviewed the implementation against spec v0.13. Application code and the specification were not changed. The reproductions used temporary synthetic inputs, isolated `igi_test_*` databases, the Cairn test double and, for the budget case, a local model stub. No real Cairn or Meta requests were made.
+- Verification: all 36 existing tests passed, both server and web type checks passed, and `eval/verify-checks.ts` passed for both development scenarios. The shell's Node shim was not configured; checks used the installed Node 24 executable directly. Database tests initially skipped because sandbox networking refused localhost; the permitted run against IGI's test databases passed without skips.
+- Issues found and reproduced, still unresolved:
+  - **Population validation (§6.4):** one valid `weights_reconcile` coverage claim for one portfolio makes the unrelated statement "All portfolios meet every policy limit" validate. The prose guard checks whether any coverage claim passed, not whether its kind and population support each statement.
+  - **Incomplete inputs (§7.5, §9.6):** removing a held fund's look-through data substitutes zero exposure, yields an ordinary policy comparison and still permits a validated exposure claim. The missing-data warning does not block the dependent fact or comparison.
+  - **Pack freshness on access (§13.3):** after the test double voided an included assertion, the pack download returned HTTP 200 with `X-IGI-Pack-State: current`, without a new status read.
+  - **Source/run invalidation (§13.3, §13.5):** changed source bytes blocked generating a new pack, but the existing pack remained non-stale and `submitPack` submitted it successfully. Staleness does not compare the pack's source manifest or governing run with the current review.
+  - **Accepted content across runs (§6.5, §13.2):** after changing an action source and saving a later run, a new pack included the earlier run's accepted finding but populated its cited committee action from the revised source. The displayed supporting action differed from the one in the first accepted package.
+  - **Review period (§6.1–6.2):** a review stored with a December period end imported September sources as a September investigation; the importer derives the scope from the latest position date without checking the configured review period. The prompt also assumes a quarterly review.
+  - **Budget outcome (§8.4):** a local model stub requested two tool calls against a one-call budget, then returned a summary; the run ended `completed` rather than `budget_exhausted`.
+- Remaining planned MVP work is separate from these defects: bounded XLSX/PDF/DOCX imports and source-location provenance, the investigation evaluation harness and frozen holdout runs, and deployment. `eval/verify-checks.ts` checks deterministic calculations, not discovery quality. Memory and the slide deck remain stretch work.
+- The investigator design still needs proof outside the check catalogue. Current numerical claims are restricted to catalogue facts, rules, quoted figures and limited derived calculations; useful Python exploration is not by itself independent validation of a novel material calculation. Preserve the blind evaluation and demonstrate an issue beyond the existing checks before extending stretch scope.
+
+**Specification audit fixes — 29 October 2026**
+
+The seven defects above are resolved, each with a regression test that mirrors the audit's reproduction. The spec's v0.13 text is clarified in place (revision log: "v0.13 clarifications").
+
+- **Population validation (§6.4):** a whole-population phrase is now supported only by verified coverage of the kind its sentence states, over the population it names.
+  - The kind is read from the sentence's wording: limits or rules, charges or fees, look-through or coverage, reconciliation of reported weights.
+  - The population is every portfolio in the review for wording about portfolios, otherwise the finding's portfolios.
+  - A sentence with no recognisable topic stays unsupported; that safe failure only leaves the finding an unvalidated observation.
+  - The audit's case ("All portfolios meet every policy limit" with one weights claim) is now unvalidated, as is limits coverage for one portfolio stretched to all of them.
+  - This is wording matching, so it can be over-strict. The tool description and the validation message tell the agent the rule.
+- **Incomplete inputs (§7.5, §9.6):** in `lookthrough_exposure`, a holding with no look-through data at the period now has an unknown exposure, not zero.
+  - The check gives no portfolio exposure, compares no rule and says why. The missing holding's own exposure and contribution are null, so no fact, comparison or `limits_met` coverage can rest on them.
+  - The pack's portfolio overview shows such an exposure as unknown. `eval/verify-checks.ts` still passes for both scenarios.
+- **Pack freshness on access (§13.3):** opening a pack's PDF or preview reads Cairn afresh first (not through the 15-second floor on refreshes), then judges the pack's state.
+  - Only the latest pack, verified just now and not stale, opens as current.
+  - A stale, superseded or unverified pack answers 409 with the reason, and opens only as an explicit historical copy (`?historical=1`). That copy carries `X-IGI-Pack-State` and `X-IGI-Verified-At`.
+  - The Pack tab labels those links "historical".
+- **Source/run invalidation (§13.3, §13.5):** `markStalePacks` now also marks a pack stale when the review's current sources differ from the pack's register, or when a later analysis run exists.
+  - It runs on every Cairn read, before submitting, and when the Pack tab lists packs, so a pack the review has moved on from shows stale at once and `submitPack` refuses it.
+- **Accepted content across runs (§6.5, §13.2):** each included finding's committee actions and rule versions now come from the sources its own run analysed, which its accepted package rests on.
+  - An earlier run's sources are read back from the file store by their recorded hashes.
+  - The pack-level list of open actions and rules in force still comes from the current sources, as §13.2 says.
+- **Review period (§6.1–6.2):** the importer takes the review's configured period end.
+  - Positions dated after it are reported.
+  - A review whose sources hold no positions at it is refused before any model call: from the API, the UI, and the command line, where an existing review keeps its stored period.
+  - The prompt, check catalogue, measures and source descriptions now say "period" instead of "quarter". The instructions and tool hashes in new runs' config change accordingly.
+- **Budget outcome (§8.4):** a tool call refused because the tool-call or Python budget is spent now ends the run `budget_exhausted`, even when the model then writes its summary. The test drives the loop with a scripted model; nothing leaves the process.
+- Verification:
+  - `npm test`: 41 pass, none skipped. New tests: both budget refusals, the period, coverage kind and population, and a later run with an earlier run's content.
+  - Both type checks and the web build are clean, and `eval/verify-checks.ts` passes for dev-01 and dev-02.
+  - On the local server, the real `dev-01-claims` review's filed pack still reads current after a Cairn read and the new staleness checks.
+- Behaviour to note:
+  - Starting an investigation makes the current pack stale at once, since the new run governs the review (the definition the pack's blockers already used). If that run fails, the operator regenerates the pack.
+  - A run that reaches the Python cap now ends `budget_exhausted`, which blocks a pack with no findings until a run completes.
+- Not re-run: a live Spark investigation. The new prompt wording and coverage rule have not yet been seen against the model.

@@ -24,8 +24,8 @@ export const MEASURES = {
   fund_exposure: 'a fund’s own exposure to an asset class',
   exposure_contribution: 'a holding’s contribution to a portfolio’s look-through exposure',
   holdings_without_lookthrough: 'how many holdings have no look-through data',
-  portfolio_return: 'a portfolio’s return for the quarter',
-  benchmark_return: 'a benchmark’s return for the quarter',
+  portfolio_return: 'a portfolio’s return for the period',
+  benchmark_return: 'a benchmark’s return for the period',
   return_difference: 'portfolio return minus benchmark return, in pp',
   return_deviation: 'the absolute difference between portfolio and benchmark return, in pp',
   ongoing_charge: 'a fund’s annual ongoing charge',
@@ -283,6 +283,23 @@ type FindingText = { portfolios: string[]; period_end?: string; statement: strin
 
 // Wording that makes a statement about a whole population: all portfolios, every holding, no other fund, full coverage.
 const UNIVERSAL = /\b(?:all|every|none of the|no other)\b(?:\s+[\w-]+){0,3}?\s+(?:portfolios?|holdings?|funds?|fees?|charges?|limits?|rules?|positions?)\b|\b(?:full|complete)\s+(?:look-?through\s+)?coverage\b/gi
+// What a sentence states about its population, by its wording, and the coverage kind that proves it. A sentence
+// matching none of these can't be tied to any coverage, so its whole-population wording stays unsupported.
+const TOPICS: [CoverageClaim['kind'], RegExp][] = [
+  ['limits_met', /\b(?:limits?|rules?|breach\w*|complian\w*|compl(?:y|ies|ied)|meets?|met)\b/i],
+  ['charges_unchanged', /\b(?:charges?|fees?|OCFs?)\b/i],
+  ['lookthrough_complete', /look-?through|\bcoverage\b/i],
+  ['weights_reconcile', /\breconcil\w*|\breported weights?\b|\bweights? (?:agree|match|sum)\w*/i],
+]
+/**
+ * The sentence around a position in a text. A sentence ends at . ! or ? followed by a space or the end, or at a line
+ * break, so the point in 12.34% is not an end.
+ */
+function sentenceAt(s: string, at: number): string {
+  const ends = [...s.matchAll(/[.!?](?=\s|$)|\n/g)].map((m) => m.index)
+  const start = Math.max(-1, ...ends.filter((i) => i < at)) + 1
+  return s.slice(start, Math.min(s.length, ...ends.filter((i) => i >= at)))
+}
 // A quote and the text it is checked against compare with whitespace collapsed and the Unicode minus as a hyphen.
 const plain = (s: string) => s.replace(/−/g, '-').replace(/\s+/g, ' ').trim()
 const rows = (review: Review, id: string): Row[] => review.sources.find((s) => s.id === id)?.rows ?? []
@@ -317,9 +334,17 @@ export function validateFinding(ctx: Context, a: FindingText): Validation {
   const unclaimed = proseFigures(prose)
     .filter((f) => !verified.some((v) => sameFigure(f, v.exact, v.unit, true)))
     .map((f) => f.text)
-  // Every statement about a whole population needs a verified coverage claim.
-  const universal = [...prose.matchAll(UNIVERSAL)].map((m) => m[0])
-  const unsupported = coverage.some((c) => c.ok) ? [] : [...new Set(universal)]
+  // Every statement about a whole population needs verified coverage of the kind its sentence states (limits met,
+  // charges unchanged, look-through complete, weights reconciled), over the population it names: every portfolio in
+  // the review for wording about portfolios, otherwise the finding's own portfolios. Several topics in one sentence
+  // need each kind; a sentence with no recognisable topic can't be supported.
+  const everyPortfolio = rows(ctx.review, 'portfolios').map((r) => r.portfolio_id)
+  const supported = (m: RegExpMatchArray) => {
+    const kinds = TOPICS.filter(([, re]) => re.test(sentenceAt(prose, m.index!))).map(([k]) => k)
+    const population = /portfolio/i.test(m[0]) ? everyPortfolio : a.portfolios
+    return kinds.length > 0 && kinds.every((k) => population.every((p) => coverage.some((c) => c.ok && c.kind === k && c.portfolios.includes(p))))
+  }
+  const unsupported = [...new Set([...prose.matchAll(UNIVERSAL)].filter((m) => !supported(m)).map((m) => m[0]))]
 
   const state = (results.length || coverage.length) && results.every((r) => r.ok) && coverage.every((c) => c.ok) && !unclaimed.length && !unsupported.length ? 'validated' : 'unvalidated'
   return {
@@ -329,7 +354,7 @@ export function validateFinding(ctx: Context, a: FindingText): Validation {
       ...results.filter((r) => !r.ok).map((r) => `${r.label}: ${r.reason}`),
       ...coverage.filter((c) => !c.ok).map((c) => `${c.kind} for ${c.portfolios.join(', ')}: ${c.reason ?? `not covered: ${c.missing.join('; ')}`}`),
       ...unclaimed.map((f) => `${f} appears in the text but is not a verified claim`),
-      ...unsupported.map((p) => `"${p}" states something about a whole population without a verified coverage claim`),
+      ...unsupported.map((p) => `"${p}" states something about a whole population without verified coverage of the kind its sentence states, for the population it names`),
     ],
     claims: results,
     coverage,

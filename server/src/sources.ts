@@ -52,9 +52,9 @@ const KINDS: Record<string, Kind> = {
     fields: { instrument_id: 'Fund identifier', as_of: 'Date of the look-through data (ISO date)', asset_class: 'Asset class', exposure_weight: `Fund's exposure to the asset class, ${FRACTION}` },
   },
   performance: {
-    description: 'Quarterly returns of each portfolio and its benchmark.',
+    description: 'Returns of each portfolio and its benchmark for each period.',
     key: ['portfolio_id', 'period_end'],
-    fields: { portfolio_id: 'Portfolio identifier', period_end: 'Quarter end (ISO date)', portfolio_return: `Portfolio return for the quarter, ${FRACTION}`, benchmark_return: `Benchmark return for the quarter, ${FRACTION}` },
+    fields: { portfolio_id: 'Portfolio identifier', period_end: 'Period end (ISO date)', portfolio_return: `Portfolio return for the period ending period_end, ${FRACTION}`, benchmark_return: `Benchmark return for the period ending period_end, ${FRACTION}` },
   },
   fees: {
     description: 'Ongoing charges of each fund by period.',
@@ -96,10 +96,12 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 /**
  * Reads every file in a review's source folder and returns the review: each CSV recognised by its header, the
- * Markdown policy document split into sections, and every file's SHA-256. The review's periods are the distinct
- * position dates; the latest is the period end. Validation issues are attached to each source, never fixed.
+ * Markdown policy document split into sections, and every file's SHA-256. The period end is the review's own
+ * (§6.1) when given, otherwise the latest position date; the review's periods are the position dates up to it.
+ * Positions missing at the period end, or dated after it, are validation issues. Issues are attached to each
+ * source, never fixed.
  */
-export function importReview(dir: string, id: string): Review {
+export function importReview(dir: string, id: string, periodEnd?: string): Review {
   const sources: Source[] = []
   for (const file of readdirSync(dir).sort()) {
     const bytes = readFileSync(join(dir, file))
@@ -127,11 +129,16 @@ export function importReview(dir: string, id: string): Review {
     const rows = data.map((r, i) => ({ row_id: `${kid}:${i + 1}`, ...Object.fromEntries(header.map((h, j) => [h, (r[j] ?? '').trim()])) }))
     sources.push({ id: kid, file, sha256, description: k.description, fields: k.fields, rows, issues: [] })
   }
-  const periods = [...new Set(table(sources, 'positions').map((r) => r.period_end))].sort()
-  const review: Review = { id, periodEnd: periods.at(-1) ?? '', periods, sources }
+  const dates = [...new Set(table(sources, 'positions').map((r) => r.period_end))].sort()
+  const end = periodEnd ?? dates.at(-1) ?? ''
+  const review: Review = { id, periodEnd: end, periods: dates.filter((d) => d <= end), sources }
+  if (periodEnd && dates.length && !dates.includes(periodEnd)) sources.find((s) => s.id === 'positions')?.issues.push(`no positions at the review's period end ${periodEnd}; the positions are dated ${dates.join(', ')}`)
   validate(review)
   return review
 }
+
+/** Why a review can't be investigated: its sources hold no positions at its period end. Undefined when they do. */
+export const periodProblem = (r: Review) => (r.periods.includes(r.periodEnd) ? undefined : `the sources hold no positions at the review's period end ${r.periodEnd}; upload the sources for that period`)
 
 /** The rows of one source by id, or none when the review lacks it. */
 function table(sources: Source[], id: string): Row[] {
@@ -143,7 +150,7 @@ function validate(review: Review) {
   const get = (id: string) => table(review.sources, id)
   const portfolios = new Set(get('portfolios').map((r) => r.portfolio_id))
   // Row checks, source by source: required fields present, keys unique, ids and dates well formed, decimals parse,
-  // fractions within -1..1 (a value like 25 suggests a percentage), and position dates among the review periods.
+  // fractions within -1..1 (a value like 25 suggests a percentage), and no position dated after the period end.
   for (const s of review.sources) {
     const k = KINDS[s.id]
     if (!k) continue
@@ -163,7 +170,7 @@ function validate(review: Review) {
         else if (FRACTIONS.includes(f) && abs(dec(r[f])) > dec('1')) issue(r, `${f} ${r[f]} is outside -1..1; possibly a percentage rather than a fraction`)
         else if (f === 'market_value_gbp' && dec(r[f]) < 0n) issue(r, `negative market value ${r[f]}`)
       }
-      if (s.id === 'positions' && r.period_end && !review.periods.includes(r.period_end)) issue(r, `period_end ${r.period_end} is not a review period`)
+      if (s.id === 'positions' && r.period_end > review.periodEnd) issue(r, `period_end ${r.period_end} is after the review's period end ${review.periodEnd}`)
     }
   }
 

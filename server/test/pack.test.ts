@@ -2,13 +2,13 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { appendFileSync, cpSync, mkdtempSync } from 'node:fs'
+import { appendFileSync, cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cairnClient } from '../src/cairn.ts'
 import { cairnFake } from '../src/cairn-fake.ts'
-import { getFile } from '../src/files.ts'
+import { getFile, retainSources } from '../src/files.ts'
 import { importReview } from '../src/sources.ts'
 import { closeRenderer } from '../src/render.ts'
 import { CONFIG, finding, pdfText, resetDatabase, useTestDatabase } from './helpers.ts'
@@ -125,12 +125,59 @@ test('pack: snapshot, final pack, supersession, stale marking and the no-finding
   assert.deepEqual([r.pack.version, r.pack.snapshot.findings.length, r.pack.snapshot.counts], [4, 0, { rejected: 1, withdrawn: 2, notSubmitted: 0 }])
   assert.match(new TextDecoder().decode(getFile(r.pack.file_key)), /No findings\. Every potential exception the analysis proposed was rejected in Cairn or withdrawn/)
 
-  // Sources that no longer match the latest run block the pack.
+  // Sources that no longer match the latest run block a new pack, and make the existing one stale, so it can't be
+  // submitted (§13.3).
   const copy = mkdtempSync(join(tmpdir(), 'igi-sources-'))
   cpSync(DEV01, copy, { recursive: true })
   appendFileSync(join(copy, 'fees.csv'), 'ZZ4RJNDOLY80,2026-12-31,0.0006\n')
   await db.sql`update review set source_dir = ${copy}`
   assert.match(reasons(await pack.generatePack(cairn, 'r1'))[0], /the sources differ from those of the latest analysis run run-r1-1: fees\.csv/)
+  assert.match((await pack.listPacks('r1'))[3].stale_reason!, /^the review's sources changed since the pack: fees\.csv \(SHA-256 \w+\), fees\.csv \(SHA-256 \w+\)$/)
+  await assert.rejects(pack.submitPack(cairn, 'r1'), /pack v4 is stale/)
+})
+
+test('pack: a later analysis run makes the pack stale, and an earlier run’s finding shows its own run’s sources', { skip }, async () => {
+  await resetDatabase(db)
+  process.env.FILES_DIR = mkdtempSync(join(tmpdir(), 'igi-files-'))
+  await db.saveReview({ id: 'r1', periodEnd: '2026-09-30', sourceDir: DEV01 })
+  const before = importReview(DEV01, 'r1')
+  const sources = before.sources.map(({ id, file, sha256 }) => ({ id, file, sha256 }))
+  retainSources(DEV01, sources)
+  // Run 1 on the fixture: an outstanding action citing the first committee action.
+  const action = before.sources.find((s) => s.id === 'committee_actions')!.rows[0]
+  const state = (findings: ReturnType<typeof finding>[]) => ({ executions: [], checks: [], notes: [], findings })
+  const overdue = finding('F1', { classification: 'outstanding_action', proposed_classification: 'outstanding_action', review_area: 'committee_actions', title: 'Overdue action', cited_rows: [action.row_id] })
+  await db.saveRun({ id: RUN, reviewId: 'r1', startedAt: '2026-10-28T09:00:00.000Z', endedAt: '2026-10-28T09:00:00.000Z', status: 'completed', config: { ...CONFIG, sources }, turns: 1, toolCalls: 1, usage: {}, summary: '', events: [], state: state([overdue]) })
+  const fake = cairnFake()
+  const cairn = cairnClient({ baseUrl: 'https://cairn.test', key: fake.key, fetch: fake.fetch })
+  await ledger.openRecord(cairn, 'r1', { subjectReference: fake.subject.cairnReference, procedureName: fake.procedure.name })
+  for (const e of await ledger.submitFinding(cairn, ref('F1'))) fake.file(e.candidate_id!)
+  let r = await pack.generatePack(cairn, 'r1')
+  assert.ok('pack' in r, reasons(r).join('\n'))
+
+  // The action log is revised and run 2 analyses the new sources, finding nothing new.
+  const copy = mkdtempSync(join(tmpdir(), 'igi-sources-'))
+  cpSync(DEV01, copy, { recursive: true })
+  const log = join(copy, 'committee_actions.csv')
+  writeFileSync(log, readFileSync(log, 'utf8').replace(action.action, 'A revised action text'))
+  await db.sql`update review set source_dir = ${copy}`
+  const after = importReview(copy, 'r1').sources.map(({ id, file, sha256 }) => ({ id, file, sha256 }))
+  retainSources(copy, after)
+  await db.saveRun({ id: 'run-r1-2', reviewId: 'r1', startedAt: '2026-10-29T09:00:00.000Z', endedAt: '2026-10-29T09:00:00.000Z', status: 'completed', config: { ...CONFIG, sources: after }, turns: 1, toolCalls: 1, usage: {}, summary: '', events: [], state: state([]) })
+  await pack.markStalePacks('r1')
+  const [v1] = await pack.listPacks('r1')
+  assert.match(v1.stale_reason!, /the review's sources changed since the pack: committee_actions\.csv/)
+  assert.match(v1.stale_reason!, /analysis run run-r1-2 is later than the pack's run run-r1-1/)
+
+  // A new pack still includes run 1's accepted finding, with the action as run 1's sources record it.
+  r = await pack.generatePack(cairn, 'r1')
+  assert.ok('pack' in r, reasons(r).join('\n'))
+  const shown = r.pack.snapshot.findings[0].committeeActions
+  assert.deepEqual(shown.map((a) => a.action), [action.action])
+  // Its article shows that text; the pack's list of open actions, computed at generation, shows the current one.
+  const html = new TextDecoder().decode(getFile(r.pack.file_key))
+  const article = html.slice(html.indexOf('<article id="F1-v1"'), html.indexOf('</article>'))
+  assert.ok(article.includes(action.action.split(' ').slice(0, 3).join(' ')) && !article.includes('A revised action text'), article)
 })
 
 test('pack: only current findings count; a rejected revision is kept but never submitted, and the pack shows the checks', { skip }, async () => {
