@@ -102,6 +102,15 @@ test('validation: matching numbers from the wrong portfolio, period, measure or 
   assert.match(claimResult(f, 'version').reason!, /is not in force/)
 })
 
+test('validation: a source field written beside the claim instead of inside source is named', async () => {
+  const s = runOn()
+  const b = await equityBreach(s)
+  const [exposure] = breachClaims(b)
+  const misplaced = { ...exposure, source: {}, fact: exposure.source.fact } as Claim
+  const r = await propose(s, { portfolios: [b.portfolio], statement: 'One figure.', claims: [misplaced] })
+  assert.match(claimResult(finding(s, r.finding_id), 'exposure').reason!, /give exactly one source.*; fact must be inside source, not beside it/)
+})
+
 test('validation: percentages and percentage-point differences are not interchangeable', async () => {
   const s = runOn()
   const p = rows(s.review, 'portfolios')[0].portfolio_id

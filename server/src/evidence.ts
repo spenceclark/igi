@@ -375,7 +375,12 @@ function checkClaim(c: Claim, ctx: Context, facts: Map<string, Fact>, exactOf: M
   const kinds = (['fact', 'rule', 'quote', 'derived'] as const).filter((k) => s[k] !== undefined)
   const base = { key: c.key, label: c.label, value: c.value ?? null, measure: c.measure }
   const fail = (basis: ClaimResult['basis'], reason: string): ClaimResult => ({ ...base, basis, ok: false, reason })
-  if (kinds.length !== 1) return fail('calculation', 'give exactly one source: fact, rule (with version), quote (with row or section) or derived (with of)')
+  if (kinds.length !== 1) {
+    // A source field written beside the claim's other fields is ignored; say where it goes.
+    const beside = (['fact', 'rule', 'version', 'quote', 'row', 'section', 'derived', 'of', 'relation'] as const).filter((k) => k in c)
+    const hint = beside.length ? `; ${beside.join(', ')} must be inside source, not beside it, e.g. "source": { "fact": "C7:exposure" }` : ''
+    return fail('calculation', `give exactly one source: fact, rule (with version), quote (with row or section) or derived (with of)${hint}`)
+  }
   if (!(c.measure in MEASURES)) return fail('calculation', `unknown measure "${c.measure}"; use one of ${Object.keys(MEASURES).join(', ')}`)
   const claimPeriod = c.period ?? period
 
